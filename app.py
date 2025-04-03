@@ -373,30 +373,45 @@ def get_available_languages(video_id):
         youtube = build('youtube', 'v3', developerKey=api_key)
 
         # Get video captions
-        captions = youtube.captions().list(
-            part="snippet",
-            videoId=video_id
-        ).execute()
+        try:
+            captions = youtube.captions().list(
+                part="snippet",
+                videoId=video_id
+            ).execute()
 
-        if not captions.get('items'):
-            st.error("No captions available for this video")
+            if not captions.get('items'):
+                st.error("No captions available for this video")
+                return None
+
+            # Get available languages
+            available_languages = []
+            for caption in captions['items']:
+                available_languages.append({
+                    'code': caption['snippet']['language'],
+                    'name': caption['snippet']['language'],
+                    'is_generated': caption['snippet']['trackKind'] == 'ASR'
+                })
+
+            # Show available languages
+            st.success("Available languages for this video:")
+            for lang in available_languages:
+                st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
+
+            return available_languages
+
+        except HttpError as e:
+            if 'accessNotConfigured' in str(e):
+                st.error("""YouTube Data API v3 is not enabled for your project. Please:
+                1. Go to https://console.cloud.google.com/
+                2. Select your project
+                3. Go to "APIs & Services" > "Library"
+                4. Search for "YouTube Data API v3"
+                5. Click "Enable"
+                6. Wait a few minutes for the changes to take effect
+                """)
+            else:
+                st.error(f"YouTube API error: {str(e)}")
             return None
-
-        # Get available languages
-        available_languages = []
-        for caption in captions['items']:
-            available_languages.append({
-                'code': caption['snippet']['language'],
-                'name': caption['snippet']['language'],
-                'is_generated': caption['snippet']['trackKind'] == 'ASR'
-            })
-
-        # Show available languages
-        st.success("Available languages for this video:")
-        for lang in available_languages:
-            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
-
-        return available_languages
 
     except Exception as e:
         st.error(f"Error getting available languages: {str(e)}")
