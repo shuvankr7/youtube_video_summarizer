@@ -520,31 +520,7 @@ def get_video_transcript(url: str) -> Optional[str]:
         for lang in languages:
             st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
 
-        # Try to get transcript using YouTube Data API first
-        try:
-            api_key = os.getenv('YOUTUBE_API_KEY')
-            if api_key:
-                youtube = build('youtube', 'v3', developerKey=api_key)
-                # First get the caption ID
-                captions_list = youtube.captions().list(
-                    part="snippet",
-                    videoId=video_id
-                ).execute()
-                
-                if 'items' in captions_list:
-                    caption_id = captions_list['items'][0]['id']
-                    # Now download the caption
-                    caption = youtube.captions().download(
-                        id=caption_id
-                    ).execute()
-                    
-                    if caption:
-                        st.success("Successfully retrieved transcript using YouTube Data API")
-                        return caption.decode('utf-8')
-        except Exception as e:
-            st.warning(f"YouTube Data API transcript retrieval failed: {str(e)}")
-
-        # Try YouTube Transcript API as fallback
+        # Try YouTube Transcript API first
         try:
             # Try each available language
             for lang in languages:
@@ -560,7 +536,7 @@ def get_video_transcript(url: str) -> Optional[str]:
         except Exception as e:
             st.warning(f"YouTube Transcript API failed: {str(e)}")
 
-        # Try pytube as last resort
+        # Try pytube as fallback
         try:
             yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
             captions = yt.captions
