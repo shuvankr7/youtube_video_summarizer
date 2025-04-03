@@ -7,8 +7,12 @@ from langchain.prompts import PromptTemplate
 import os
 import re
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+from youtube_transcript_api.formatters import TextFormatter
 from dotenv import load_dotenv
 from pytube import YouTube
+import requests
+from random import choice
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -26,6 +30,8 @@ if 'url_input' not in st.session_state:
     st.session_state.url_input = ""
 if 'user_api_key' not in st.session_state:
     st.session_state.user_api_key = ""
+if 'show_translation' not in st.session_state:
+    st.session_state.show_translation = False
 
 # List of supported languages for translation
 SUPPORTED_LANGUAGES = [
@@ -168,6 +174,61 @@ SUPPORTED_LANGUAGES = [
     {"name": "Urali", "code": "url"}
 ]
 
+def get_working_proxy():
+    """Get a working proxy from public proxy list"""
+    try:
+        # Get free proxy list
+        response = requests.get('https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt')
+        proxies = response.text.split('\n')
+        
+        # Filter and test proxies
+        for proxy in proxies:
+            if proxy.strip():
+                try:
+                    # Test proxy with a simple request
+                    test_response = requests.get(
+                        'https://www.youtube.com',
+                        proxies={'http': f'http://{proxy}', 'https': f'http://{proxy}'},
+                        timeout=5
+                    )
+                    if test_response.status_code == 200:
+                        return {'http': f'http://{proxy}', 'https': f'http://{proxy}'}
+                except:
+                    continue
+    except:
+        pass
+    return None
+
+def get_transcript_with_proxy(video_id, languages=[]):
+    """Get transcript using proxy if needed"""
+    try:
+        # First try without proxy
+        return YouTubeTranscriptApi.get_transcript(video_id, languages=languages)
+    except Exception as e:
+        # If failed, try with proxy
+        proxy = get_working_proxy()
+        if proxy:
+            try:
+                return YouTubeTranscriptApi.get_transcript(video_id, languages=languages, proxies=proxy)
+            except:
+                raise e
+        raise e
+
+def get_transcript_list_with_proxy(video_id):
+    """Get transcript list using proxy if needed"""
+    try:
+        # First try without proxy
+        return YouTubeTranscriptApi.list_transcripts(video_id)
+    except Exception as e:
+        # If failed, try with proxy
+        proxy = get_working_proxy()
+        if proxy:
+            try:
+                return YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
+            except:
+                raise e
+        raise e
+
 def extract_video_id(url):
     """Extract video ID from YouTube URL"""
     pattern = r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})'
@@ -179,7 +240,7 @@ def extract_video_id(url):
 def get_available_languages(video_id):
     """Get available languages for a video"""
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript_list = get_transcript_list_with_proxy(video_id)
         available_languages = []
         for transcript in transcript_list:
             available_languages.append({
@@ -195,7 +256,7 @@ def get_available_languages(video_id):
 def get_video_transcript(video_id, language_code='en'):
     """Get transcript for a YouTube video in specified language"""
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=[language_code])
+        transcript_list = get_transcript_with_proxy(video_id, languages=[language_code])
         transcript_text = " ".join([t['text'] for t in transcript_list])
         return transcript_text
     except NoTranscriptFound:
