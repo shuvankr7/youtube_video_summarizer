@@ -269,7 +269,7 @@ def get_available_languages(video_id):
                             'name': item['snippet']['name'],
                             'is_generated': item['snippet']['trackKind'] == 'ASR'
                         })
-                    # st.info(f"Found {len(available_languages)} languages using YouTube Data API")
+                    st.info(f"Found {len(available_languages)} languages using YouTube Data API")
                     return available_languages
         except HttpError as e:
             if 'accessNotConfigured' in str(e):
@@ -292,7 +292,7 @@ def get_available_languages(video_id):
                     'name': transcript.language,
                     'is_generated': transcript.is_generated
                 })
-            # st.info(f"Found {len(available_languages)} languages using YouTube Transcript API")
+            st.info(f"Found {len(available_languages)} languages using YouTube Transcript API")
             return available_languages
         except Exception as e:
             st.warning(f"YouTube Transcript API method failed: {str(e)}")
@@ -310,7 +310,7 @@ def get_available_languages(video_id):
                         'name': caption.name,
                         'is_generated': caption.code.startswith('a.')
                     })
-                # st.info(f"Found {len(available_languages)} languages using pytube")
+                st.info(f"Found {len(available_languages)} languages using pytube")
                 return available_languages
         except Exception as e:
             st.warning(f"Pytube method failed: {str(e)}")
@@ -375,7 +375,7 @@ def summarize_video(url, language_code='en'):
     # If requested language is not available, use the first available language
     if not any(lang['code'] == language_code for lang in available_languages):
         language_code = available_languages[0]['code']
-        # st.info(f"Requested language not available. Using {available_languages[0]['name']} instead.")
+        st.info(f"Requested language not available. Using {available_languages[0]['name']} instead.")
 
     # Get video transcript
     transcript = get_video_transcript(url)
