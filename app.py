@@ -223,24 +223,34 @@ def get_available_languages(video_id):
 
 def get_video_transcript(url: str) -> Optional[str]:
     """
-    Get video transcript using pytube
+    Get video transcript using pytube with retry mechanism
     """
-    try:
-        yt = YouTube(url)
-        captions = yt.captions
-        if not captions:
-            return None
-        
-        # Try to get English captions first
-        caption = captions.get('en') or captions.get('a.en')
-        if not caption:
-            # If no English captions, get the first available language
-            caption = next(iter(captions.values()))
-        
-        return caption.generate_srt_captions()
-    except Exception as e:
-        st.error(f"Error getting transcript: {str(e)}")
-        return None
+    max_retries = 3
+    retry_delay = 2  # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            yt = YouTube(url)
+            captions = yt.captions
+            if not captions:
+                st.warning("No captions available for this video")
+                return None
+            
+            # Try to get English captions first
+            caption = captions.get('en') or captions.get('a.en')
+            if not caption:
+                # If no English captions, get the first available language
+                caption = next(iter(captions.values()))
+            
+            return caption.generate_srt_captions()
+        except Exception as e:
+            if attempt < max_retries - 1:
+                st.warning(f"Attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+                continue
+            else:
+                st.error(f"Error getting transcript after {max_retries} attempts: {str(e)}")
+                return None
 
 def get_proxy():
     """Get a working proxy from multiple reliable proxy services"""
@@ -286,6 +296,8 @@ def get_proxy():
 def get_transcript_with_proxy(video_id, languages=[]):
     """Get transcript using proxy if needed"""
     max_retries = 3
+    retry_delay = 2  # seconds
+    
     for attempt in range(max_retries):
         try:
             # First try without proxy
@@ -298,7 +310,8 @@ def get_transcript_with_proxy(video_id, languages=[]):
                     try:
                         return YouTubeTranscriptApi.get_transcript(video_id, languages=languages, proxies=proxy)
                     except:
-                        time.sleep(2)  # Wait before next attempt
+                        st.warning(f"Attempt {attempt + 1} with proxy failed. Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
                         continue
             else:
                 st.error("Could not retrieve transcript. Please try again later or use a different video.")
@@ -307,6 +320,8 @@ def get_transcript_with_proxy(video_id, languages=[]):
 def get_transcript_list_with_proxy(video_id):
     """Get transcript list using proxy if needed"""
     max_retries = 3
+    retry_delay = 2  # seconds
+    
     for attempt in range(max_retries):
         try:
             # First try without proxy
@@ -319,7 +334,8 @@ def get_transcript_list_with_proxy(video_id):
                     try:
                         return YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
                     except:
-                        time.sleep(2)  # Wait before next attempt
+                        st.warning(f"Attempt {attempt + 1} with proxy failed. Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
                         continue
             else:
                 st.error("Could not retrieve available languages. Please try again later or use a different video.")
