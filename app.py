@@ -220,6 +220,12 @@ def get_available_languages(video_id):
                     'name': transcript.language,
                     'is_generated': transcript.is_generated
                 })
+            
+            # Show available languages
+            st.info("Available languages for this video:")
+            for lang in available_languages:
+                st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
+            
             return available_languages
         except Exception as e:
             if attempt < max_retries - 1:
@@ -245,15 +251,36 @@ def get_video_transcript(url: str) -> Optional[str]:
     
     for attempt in range(max_retries):
         try:
-            # First try without proxy
+            # Get available transcripts
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            
+            # Get all available languages
+            available_languages = []
+            for transcript in transcript_list:
+                available_languages.append({
+                    'code': transcript.language_code,
+                    'name': transcript.language,
+                    'is_generated': transcript.is_generated
+                })
+            
+            # Show available languages to user
+            st.info("Available languages for this video:")
+            for lang in available_languages:
+                st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
             
             # Try to get English transcript first
             try:
                 transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
-            except (TranscriptsDisabled, NoTranscriptFound):
-                # If English not available, get the first available language
-                transcript = YouTubeTranscriptApi.get_transcript(video_id)
+                st.success("Using English transcript")
+            except:
+                # If English not available, try Hindi (since it's available)
+                try:
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi'])
+                    st.warning("English transcript not available. Using Hindi transcript instead.")
+                except:
+                    # If neither English nor Hindi available, get the first available language
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id)
+                    st.warning(f"Using {transcript_list[0].language} transcript")
             
             # Convert transcript to text
             formatter = TextFormatter()
