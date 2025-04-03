@@ -4,3 +4,4 @@ langchain-groq
 python-dotenv
 youtube-transcript-api
 pytube
+langchain-community
