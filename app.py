@@ -13,6 +13,8 @@ from pytube import YouTube
 import requests
 from random import choice
 import json
+import random
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -174,29 +176,36 @@ SUPPORTED_LANGUAGES = [
     {"name": "Urali", "code": "url"}
 ]
 
+# List of free proxy servers
+FREE_PROXIES = [
+    "http://51.15.242.202:3128",
+    "http://51.15.242.202:8888",
+    "http://51.15.242.202:8080",
+    "http://51.15.242.202:80",
+    "http://51.15.242.202:443",
+    "http://51.15.242.202:8443",
+    "http://51.15.242.202:3128",
+    "http://51.15.242.202:8888",
+    "http://51.15.242.202:8080",
+    "http://51.15.242.202:80",
+    "http://51.15.242.202:443",
+    "http://51.15.242.202:8443"
+]
+
 def get_working_proxy():
-    """Get a working proxy from public proxy list"""
-    try:
-        # Get free proxy list
-        response = requests.get('https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt')
-        proxies = response.text.split('\n')
-        
-        # Filter and test proxies
-        for proxy in proxies:
-            if proxy.strip():
-                try:
-                    # Test proxy with a simple request
-                    test_response = requests.get(
-                        'https://www.youtube.com',
-                        proxies={'http': f'http://{proxy}', 'https': f'http://{proxy}'},
-                        timeout=5
-                    )
-                    if test_response.status_code == 200:
-                        return {'http': f'http://{proxy}', 'https': f'http://{proxy}'}
-                except:
-                    continue
-    except:
-        pass
+    """Get a working proxy from the list of free proxies"""
+    for proxy in FREE_PROXIES:
+        try:
+            # Test proxy with a simple request
+            test_response = requests.get(
+                'https://www.youtube.com',
+                proxies={'http': proxy, 'https': proxy},
+                timeout=5
+            )
+            if test_response.status_code == 200:
+                return {'http': proxy, 'https': proxy}
+        except:
+            continue
     return None
 
 def get_transcript_with_proxy(video_id, languages=[]):
