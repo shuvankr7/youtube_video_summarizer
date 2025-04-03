@@ -15,6 +15,7 @@ from random import choice
 import json
 import random
 import time
+from urllib.parse import urlparse
 
 # Load environment variables from .env file
 load_dotenv()
@@ -176,67 +177,71 @@ SUPPORTED_LANGUAGES = [
     {"name": "Urali", "code": "url"}
 ]
 
-# List of free proxy servers
-FREE_PROXIES = [
-    "http://51.15.242.202:3128",
-    "http://51.15.242.202:8888",
-    "http://51.15.242.202:8080",
-    "http://51.15.242.202:80",
-    "http://51.15.242.202:443",
-    "http://51.15.242.202:8443",
-    "http://51.15.242.202:3128",
-    "http://51.15.242.202:8888",
-    "http://51.15.242.202:8080",
-    "http://51.15.242.202:80",
-    "http://51.15.242.202:443",
-    "http://51.15.242.202:8443"
-]
-
-def get_working_proxy():
-    """Get a working proxy from the list of free proxies"""
-    for proxy in FREE_PROXIES:
-        try:
-            # Test proxy with a simple request
-            test_response = requests.get(
-                'https://www.youtube.com',
-                proxies={'http': proxy, 'https': proxy},
-                timeout=5
-            )
-            if test_response.status_code == 200:
-                return {'http': proxy, 'https': proxy}
-        except:
-            continue
+def get_proxy():
+    """Get a proxy from a public proxy list with fallback"""
+    try:
+        # Try to get proxies from a public API
+        response = requests.get('https://proxylist.geonode.com/api/proxy-list?limit=10&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps')
+        if response.status_code == 200:
+            proxies = response.json()
+            if proxies and 'data' in proxies:
+                for proxy in proxies['data']:
+                    if proxy['protocols'] and ('http' in proxy['protocols'] or 'https' in proxy['protocols']):
+                        proxy_url = f"http://{proxy['ip']}:{proxy['port']}"
+                        try:
+                            # Test the proxy
+                            test_response = requests.get(
+                                'https://www.youtube.com',
+                                proxies={'http': proxy_url, 'https': proxy_url},
+                                timeout=5
+                            )
+                            if test_response.status_code == 200:
+                                return {'http': proxy_url, 'https': proxy_url}
+                        except:
+                            continue
+    except:
+        pass
     return None
 
 def get_transcript_with_proxy(video_id, languages=[]):
     """Get transcript using proxy if needed"""
-    try:
-        # First try without proxy
-        return YouTubeTranscriptApi.get_transcript(video_id, languages=languages)
-    except Exception as e:
-        # If failed, try with proxy
-        proxy = get_working_proxy()
-        if proxy:
-            try:
-                return YouTubeTranscriptApi.get_transcript(video_id, languages=languages, proxies=proxy)
-            except:
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # First try without proxy
+            return YouTubeTranscriptApi.get_transcript(video_id, languages=languages)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                # Try with proxy
+                proxy = get_proxy()
+                if proxy:
+                    try:
+                        return YouTubeTranscriptApi.get_transcript(video_id, languages=languages, proxies=proxy)
+                    except:
+                        time.sleep(1)  # Wait before next attempt
+                        continue
+            else:
                 raise e
-        raise e
 
 def get_transcript_list_with_proxy(video_id):
     """Get transcript list using proxy if needed"""
-    try:
-        # First try without proxy
-        return YouTubeTranscriptApi.list_transcripts(video_id)
-    except Exception as e:
-        # If failed, try with proxy
-        proxy = get_working_proxy()
-        if proxy:
-            try:
-                return YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
-            except:
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # First try without proxy
+            return YouTubeTranscriptApi.list_transcripts(video_id)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                # Try with proxy
+                proxy = get_proxy()
+                if proxy:
+                    try:
+                        return YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
+                    except:
+                        time.sleep(1)  # Wait before next attempt
+                        continue
+            else:
                 raise e
-        raise e
 
 def extract_video_id(url):
     """Extract video ID from YouTube URL"""
