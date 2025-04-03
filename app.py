@@ -219,8 +219,10 @@ def get_proxy():
         # Format proxy URL with Webshare credentials
         proxy_url = f"http://{webshare_username}:{webshare_password}@p.webshare.io:80"
         
-        # Test the proxy
+        # Test the proxy with proper authentication headers
         session = requests.Session()
+        session.auth = (webshare_username, webshare_password)
+        
         retry = Retry(
             total=3,
             backoff_factor=0.1,
@@ -230,16 +232,28 @@ def get_proxy():
         session.mount('http://', adapter)
         session.mount('https://', adapter)
         
+        # Test with a simple request first
         test_response = session.get(
-            'https://www.youtube.com',
+            'http://p.webshare.io',
             proxies={'http': proxy_url, 'https': proxy_url},
             timeout=10
         )
         
         if test_response.status_code == 200:
-            return {'http': proxy_url, 'https': proxy_url}
+            # If basic test passes, try YouTube
+            youtube_test = session.get(
+                'https://www.youtube.com',
+                proxies={'http': proxy_url, 'https': proxy_url},
+                timeout=10
+            )
+            
+            if youtube_test.status_code == 200:
+                return {'http': proxy_url, 'https': proxy_url}
+            else:
+                st.error("Proxy can access Webshare but not YouTube")
+                return None
         else:
-            st.error("Webshare proxy test failed")
+            st.error("Proxy authentication failed")
             return None
             
     except Exception as e:
