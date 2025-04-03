@@ -23,6 +23,7 @@ from typing import Optional, Dict, Any
 import google.generativeai as genai
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api.formatters import TextFormatter
+from bs4 import BeautifulSoup
 
 # Load environment variables from .env file
 load_dotenv()
@@ -203,6 +204,14 @@ def extract_video_id(url: str) -> Optional[str]:
             return match.group(1)
     return None
 
+def check_video_availability(video_id: str) -> bool:
+    """Check if video exists and is accessible"""
+    try:
+        response = requests.get(f"https://www.youtube.com/watch?v={video_id}")
+        return response.status_code == 200
+    except:
+        return False
+
 def get_video_info(url: str) -> Optional[Dict[str, Any]]:
     """
     Get video information using YouTube Transcript API
@@ -236,121 +245,48 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
         st.error(f"Error getting video info: {str(e)}")
         return None
 
-def get_video_transcript(url: str) -> Optional[str]:
-    """
-    Get video transcript using YouTube Transcript API
-    """
-    try:
-        video_id = extract_video_id(url)
-        if not video_id:
-            st.error("Invalid YouTube URL")
-            return None
-
-        # Get available transcripts
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        
-        # Show available languages
-        st.success("Available languages for this video:")
-        for transcript in transcript_list:
-            st.write(f"- {transcript.language} ({'Auto-generated' if transcript.is_generated else 'Manually created'})")
-        
-        # Try to get English transcript first
-        try:
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
-            st.success("Using English transcript")
-        except:
-            # If English not available, try Hindi
-            try:
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi'])
-                st.warning("English transcript not available. Using Hindi transcript instead.")
-            except:
-                # If neither English nor Hindi available, get the first available language
-                first_lang = transcript_list[0].language_code
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[first_lang])
-                st.warning(f"Using {transcript_list[0].language} transcript")
-        
-        # Format transcript
-        formatter = TextFormatter()
-        transcript_text = formatter.format_transcript(transcript)
-        
-        return transcript_text
-
-    except Exception as e:
-        st.error(f"Error getting transcript: {str(e)}")
-        return None
-
 def get_available_languages(video_id):
-    """Get available caption languages using YouTube Transcript API"""
+    """Get available caption languages using multiple methods"""
     try:
-        # First check if the video exists and has captions enabled
+        # Method 1: Try YouTube Transcript API
         try:
             languages = YouTubeTranscriptApi.list_transcripts(video_id)
-        except Exception as e:
-            if "Subtitles are disabled" in str(e):
-                st.error("""
-                ❌ This video has subtitles disabled by the creator. 
-                
-                To use this tool, please try a different video that has:
-                1. Manual captions added by the creator, or
-                2. Auto-generated captions enabled
-                
-                You can check if a video has captions by:
-                1. Opening the video on YouTube
-                2. Clicking the "CC" (Closed Captions) button
-                3. If no captions are available, try another video
-                """)
-                return None
-            else:
-                st.error(f"Error getting available languages: {str(e)}")
-                return None
-        
-        # Verify that we can actually get the transcript
+            available_languages = []
+            for transcript in languages:
+                available_languages.append({
+                    'code': transcript.language_code,
+                    'name': transcript.language,
+                    'is_generated': transcript.is_generated
+                })
+            return available_languages
+        except:
+            pass
+
+        # Method 2: Check video page for captions
         try:
-            # Try to get a transcript to verify it's actually available
-            YouTubeTranscriptApi.get_transcript(video_id, languages=[languages[0].language_code])
-        except Exception as e:
-            st.error("""
-            ❌ Captions appear to be available but are actually disabled.
+            response = requests.get(f"https://www.youtube.com/watch?v={video_id}")
+            soup = BeautifulSoup(response.text, 'html.parser')
+            caption_tracks = soup.find_all('track', {'kind': 'captions'})
             
-            This can happen when:
-            1. The video creator has disabled captions after they were generated
-            2. The captions are region-locked
-            3. The video has been modified to remove captions
-            
-            Please try a different video that has working captions enabled.
-            """)
-            return None
-        
-        available_languages = []
-        for transcript in languages:
-            available_languages.append({
-                'code': transcript.language_code,
-                'name': transcript.language,
-                'is_generated': transcript.is_generated
-            })
+            if caption_tracks:
+                available_languages = []
+                for track in caption_tracks:
+                    lang_code = track.get('srclang', '')
+                    lang_name = track.get('label', '')
+                    is_generated = 'auto' in lang_name.lower()
+                    available_languages.append({
+                        'code': lang_code,
+                        'name': lang_name,
+                        'is_generated': is_generated
+                    })
+                return available_languages
+        except:
+            pass
 
-        if not available_languages:
-            st.error("""
-            ❌ No captions available for this video.
-            
-            This could be because:
-            1. The video creator has disabled captions
-            2. The video is too new and auto-captions haven't been generated yet
-            3. The video is private or unlisted
-            
-            Please try a different video that has captions enabled.
-            """)
-            return None
-
-        # Show available languages
-        st.success("Available languages for this video:")
-        for lang in available_languages:
-            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
-
-        return available_languages
+        return None
 
     except Exception as e:
-        st.error(f"Error getting available languages: {str(e)}")
+        st.error(f"Error checking available languages: {str(e)}")
         return None
 
 def get_video_duration(url):
@@ -512,6 +448,55 @@ def summarize_content(content: str) -> str:
     except Exception as e:
         st.error(f"Error summarizing content: {str(e)}")
         return ""
+
+def get_video_transcript(url: str) -> Optional[str]:
+    """Get video transcript using multiple methods"""
+    try:
+        video_id = extract_video_id(url)
+        if not video_id:
+            st.error("Invalid YouTube URL")
+            return None
+
+        # Check if video exists
+        if not check_video_availability(video_id):
+            st.error("Video not found or not accessible")
+            return None
+
+        # Get available languages
+        languages = get_available_languages(video_id)
+        if not languages:
+            st.error("No captions available for this video")
+            return None
+
+        # Show available languages
+        st.success("Available languages for this video:")
+        for lang in languages:
+            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
+
+        # Try to get transcript
+        try:
+            # Try English first
+            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+            st.success("Using English transcript")
+        except:
+            try:
+                # Try Hindi if English not available
+                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi'])
+                st.warning("English transcript not available. Using Hindi transcript instead.")
+            except:
+                # Try first available language
+                first_lang = languages[0]['code']
+                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[first_lang])
+                st.warning(f"Using {languages[0]['name']} transcript")
+
+        # Format transcript
+        formatter = TextFormatter()
+        transcript_text = formatter.format_transcript(transcript)
+        return transcript_text
+
+    except Exception as e:
+        st.error(f"Error getting transcript: {str(e)}")
+        return None
 
 def generate_summary(transcript: str) -> str:
     """Generate summary using Google's Gemini Pro model"""
