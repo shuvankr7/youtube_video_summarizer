@@ -304,6 +304,23 @@ def get_available_languages(video_id):
                 st.error(f"Error getting available languages: {str(e)}")
                 return None
         
+        # Verify that we can actually get the transcript
+        try:
+            # Try to get a transcript to verify it's actually available
+            YouTubeTranscriptApi.get_transcript(video_id, languages=[languages[0].language_code])
+        except Exception as e:
+            st.error("""
+            ❌ Captions appear to be available but are actually disabled.
+            
+            This can happen when:
+            1. The video creator has disabled captions after they were generated
+            2. The captions are region-locked
+            3. The video has been modified to remove captions
+            
+            Please try a different video that has working captions enabled.
+            """)
+            return None
+        
         available_languages = []
         for transcript in languages:
             available_languages.append({
