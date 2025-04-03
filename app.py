@@ -328,14 +328,21 @@ def get_available_languages(video_id):
         try:
             # First try without proxy
             try:
+                st.info("Attempting to fetch languages directly...")
                 transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             except Exception as e:
+                st.warning(f"Direct access failed: {str(e)}")
                 # If direct access fails, try with proxy
                 proxy = get_proxy()
                 if proxy:
                     st.info("Using proxy to access YouTube...")
-                    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
+                    try:
+                        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
+                    except Exception as proxy_error:
+                        st.error(f"Proxy access failed: {str(proxy_error)}")
+                        raise proxy_error
                 else:
+                    st.error("No working proxy available")
                     raise e
             
             available_languages = []
@@ -346,12 +353,17 @@ def get_available_languages(video_id):
                     'is_generated': transcript.is_generated
                 })
             
+            if not available_languages:
+                st.error("No languages found for this video")
+                return None
+            
             # Show available languages
-            st.info("Available languages for this video:")
+            st.success("Successfully retrieved available languages:")
             for lang in available_languages:
                 st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
             
             return available_languages
+            
         except Exception as e:
             if attempt < max_retries - 1:
                 st.warning(f"Attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
