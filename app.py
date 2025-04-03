@@ -206,47 +206,45 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
         return None
 
 def get_proxy():
-    """Get a working proxy from multiple reliable proxy services"""
-    proxy_sources = [
-        'https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all',
-        'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt',
-        'https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt',
-        'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt',
-        'https://raw.githubusercontent.com/rdavydov/proxy-list/main/proxies/http.txt'
-    ]
-    
-    for source in proxy_sources:
-        try:
-            response = requests.get(source, timeout=10)
-            if response.status_code == 200:
-                proxies = response.text.strip().split('\n')
-                for proxy in proxies:
-                    if proxy.strip():
-                        proxy_url = f"http://{proxy.strip()}"
-                        try:
-                            # Test the proxy with a session that has retry logic
-                            session = requests.Session()
-                            retry = Retry(
-                                total=3,
-                                backoff_factor=0.1,
-                                status_forcelist=[500, 502, 503, 504]
-                            )
-                            adapter = HTTPAdapter(max_retries=retry)
-                            session.mount('http://', adapter)
-                            session.mount('https://', adapter)
-                            
-                            test_response = session.get(
-                                'https://www.youtube.com',
-                                proxies={'http': proxy_url, 'https': proxy_url},
-                                timeout=5
-                            )
-                            if test_response.status_code == 200:
-                                return {'http': proxy_url, 'https': proxy_url}
-                        except:
-                            continue
-        except:
-            continue
-    return None
+    """Get a working proxy from Webshare residential proxy service"""
+    try:
+        # Get Webshare proxy credentials from environment variables
+        webshare_username = os.getenv("WEBSHARE_USERNAME")
+        webshare_password = os.getenv("WEBSHARE_PASSWORD")
+        
+        if not webshare_username or not webshare_password:
+            st.warning("Webshare credentials not found. Please set WEBSHARE_USERNAME and WEBSHARE_PASSWORD in your .env file.")
+            return None
+            
+        # Format proxy URL with Webshare credentials
+        proxy_url = f"http://{webshare_username}:{webshare_password}@p.webshare.io:80"
+        
+        # Test the proxy
+        session = requests.Session()
+        retry = Retry(
+            total=3,
+            backoff_factor=0.1,
+            status_forcelist=[500, 502, 503, 504]
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+        
+        test_response = session.get(
+            'https://www.youtube.com',
+            proxies={'http': proxy_url, 'https': proxy_url},
+            timeout=10
+        )
+        
+        if test_response.status_code == 200:
+            return {'http': proxy_url, 'https': proxy_url}
+        else:
+            st.error("Webshare proxy test failed")
+            return None
+            
+    except Exception as e:
+        st.error(f"Error setting up Webshare proxy: {str(e)}")
+        return None
 
 def get_video_transcript(url: str) -> Optional[str]:
     """
@@ -320,30 +318,20 @@ def get_video_transcript(url: str) -> Optional[str]:
                 return None
 
 def get_available_languages(video_id):
-    """Get available caption languages using youtube-transcript-api with proxy support"""
+    """Get available caption languages using youtube-transcript-api with Webshare proxy support"""
     max_retries = 3
     retry_delay = 2  # seconds
     
     for attempt in range(max_retries):
         try:
-            # First try without proxy
-            try:
-                st.info("Attempting to fetch languages directly...")
+            # Try with Webshare proxy first
+            proxy = get_proxy()
+            if proxy:
+                st.info("Using Webshare residential proxy to access YouTube...")
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
+            else:
+                st.warning("No proxy available, attempting direct access...")
                 transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            except Exception as e:
-                st.warning(f"Direct access failed: {str(e)}")
-                # If direct access fails, try with proxy
-                proxy = get_proxy()
-                if proxy:
-                    st.info("Using proxy to access YouTube...")
-                    try:
-                        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
-                    except Exception as proxy_error:
-                        st.error(f"Proxy access failed: {str(proxy_error)}")
-                        raise proxy_error
-                else:
-                    st.error("No working proxy available")
-                    raise e
             
             available_languages = []
             for transcript in transcript_list:
@@ -371,6 +359,14 @@ def get_available_languages(video_id):
                 continue
             else:
                 st.error(f"Error getting available languages after {max_retries} attempts: {str(e)}")
+                st.info("""
+                    To resolve this issue:
+                    1. Sign up for Webshare residential proxies at https://www.webshare.io/
+                    2. Add your credentials to the .env file:
+                       WEBSHARE_USERNAME=your_username
+                       WEBSHARE_PASSWORD=your_password
+                    3. Restart the application
+                """)
                 return None
 
 def get_video_duration(url):
