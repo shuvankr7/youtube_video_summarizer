@@ -17,6 +17,11 @@ from urllib.parse import urlparse
 import json
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from typing import Optional, Dict, Any
 
 # Load environment variables from .env file
 load_dotenv()
@@ -176,6 +181,19 @@ SUPPORTED_LANGUAGES = [
     {"name": "Urali", "code": "url"}
 ]
 
+def get_youtube_service():
+    """Create and return a YouTube API service object"""
+    api_key = os.getenv("YOUTUBE_API_KEY")
+    if not api_key:
+        st.error("YouTube API key not found. Please set the YOUTUBE_API_KEY environment variable.")
+        return None
+    try:
+        youtube = build('youtube', 'v3', developerKey=api_key)
+        return youtube
+    except Exception as e:
+        st.error(f"Error creating YouTube service: {str(e)}")
+        return None
+
 def extract_video_id(url):
     """Extract video ID from YouTube URL"""
     pattern = r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})'
@@ -183,6 +201,79 @@ def extract_video_id(url):
     if match:
         return match.group(1)
     return None
+
+def get_video_info(url: str) -> Optional[Dict[str, Any]]:
+    """
+    Get video information using pytube
+    """
+    try:
+        yt = YouTube(url)
+        return {
+            'title': yt.title,
+            'author': yt.author,
+            'length': yt.length,
+            'views': yt.views,
+            'publish_date': yt.publish_date,
+            'description': yt.description
+        }
+    except Exception as e:
+        st.error(f"Error getting video info: {str(e)}")
+        return None
+
+def get_available_languages(video_id):
+    """Get available caption languages using YouTube Data API"""
+    youtube = get_youtube_service()
+    if not youtube:
+        return None
+
+    try:
+        request = youtube.captions().list(
+            part="snippet",
+            videoId=video_id
+        )
+        response = request.execute()
+
+        available_languages = []
+        for item in response.get('items', []):
+            lang_code = item['snippet']['language']
+            lang_name = item['snippet']['name']
+            is_auto = 'auto-generated' in lang_name.lower()
+            
+            available_languages.append({
+                'code': lang_code,
+                'name': lang_name,
+                'is_generated': is_auto
+            })
+
+        if not available_languages:
+            st.error("No captions available for this video")
+            return None
+
+        return available_languages
+    except HttpError as e:
+        st.error(f"Error getting available languages: {str(e)}")
+        return None
+
+def get_video_transcript(url: str) -> Optional[str]:
+    """
+    Get video transcript using pytube
+    """
+    try:
+        yt = YouTube(url)
+        captions = yt.captions
+        if not captions:
+            return None
+        
+        # Try to get English captions first
+        caption = captions.get('en') or captions.get('a.en')
+        if not caption:
+            # If no English captions, get the first available language
+            caption = next(iter(captions.values()))
+        
+        return caption.generate_srt_captions()
+    except Exception as e:
+        st.error(f"Error getting transcript: {str(e)}")
+        return None
 
 def get_proxy():
     """Get a working proxy from multiple reliable proxy services"""
@@ -267,110 +358,6 @@ def get_transcript_list_with_proxy(video_id):
                 st.error("Could not retrieve available languages. Please try again later or use a different video.")
                 return None
 
-def get_video_info(url):
-    """Get video information using pytube with better error handling"""
-    try:
-        # Try with basic configuration
-        yt = YouTube(url)
-        
-        # Try to get basic info first
-        try:
-            title = yt.title
-        except:
-            title = "Unknown Title"
-            
-        try:
-            length = yt.length
-        except:
-            length = 0
-            
-        try:
-            author = yt.author
-        except:
-            author = "Unknown Author"
-            
-        return {
-            'title': title,
-            'length': length,
-            'author': author,
-            'publish_date': None,  # Skip potentially problematic fields
-            'views': None,
-            'rating': None
-        }
-    except Exception as e:
-        st.error(f"Error getting video information: {str(e)}")
-        return None
-
-def get_available_languages(video_id):
-    """Get available languages for a video using pytube captions"""
-    try:
-        # First try to get video info to ensure video exists
-        video_url = f"https://www.youtube.com/watch?v={video_id}"
-        video_info = get_video_info(video_url)
-        if not video_info:
-            st.error("Could not access video information. The video might be private or unavailable.")
-            return None
-
-        # Get available captions
-        yt = YouTube(video_url)
-        captions = yt.captions
-        
-        if not captions:
-            st.error("No captions available for this video.")
-            return None
-            
-        available_languages = []
-        for lang_code in captions:
-            caption = captions[lang_code]
-            available_languages.append({
-                'code': lang_code,
-                'name': caption.name,
-                'is_generated': caption.code.startswith('a.')
-            })
-            
-        return available_languages
-    except Exception as e:
-        st.error(f"Error getting available languages: {str(e)}")
-        return None
-
-def get_video_transcript(video_id, language_code='en'):
-    """Get transcript for a YouTube video in specified language using pytube captions"""
-    try:
-        # First try to get video info to ensure video exists
-        video_url = f"https://www.youtube.com/watch?v={video_id}"
-        video_info = get_video_info(video_url)
-        if not video_info:
-            st.error("Could not access video information. The video might be private or unavailable.")
-            return None
-
-        # Get captions
-        yt = YouTube(video_url)
-        captions = yt.captions
-        
-        if not captions:
-            st.error("No captions available for this video.")
-            return None
-            
-        # Try to get the requested language caption
-        if language_code not in captions:
-            st.error(f"No captions available for language code: {language_code}")
-            return None
-            
-        caption = captions[language_code]
-        transcript_text = caption.generate_srt_captions()
-        
-        # Convert SRT to plain text
-        lines = transcript_text.split('\n')
-        text_lines = []
-        for i in range(0, len(lines), 4):
-            if i + 2 < len(lines):
-                text_lines.append(lines[i + 2])
-                
-        return ' '.join(text_lines)
-    except Exception as e:
-        st.error(f"Error getting transcript: {str(e)}")
-        return None
-
 def get_video_duration(url):
     """Get video duration using pytube"""
     try:
@@ -413,7 +400,7 @@ def summarize_video(url, language_code='en'):
         st.info(f"Requested language not available. Using {available_languages[0]['name']} instead.")
 
     # Get video transcript
-    transcript = get_video_transcript(video_id, language_code)
+    transcript = get_video_transcript(url)
     if not transcript:
         return None
 
@@ -514,6 +501,22 @@ def translate_summary(summary, target_language='en'):
     except Exception as e:
         st.error(f"Error translating summary: {str(e)}")
         return None
+
+def summarize_content(content: str) -> str:
+    """
+    Summarize the content using Groq
+    """
+    try:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a helpful assistant that summarizes content concisely."),
+            ("user", "Please summarize the following content in bullet points:\n\n{content}")
+        ])
+        
+        chain = prompt | llm | StrOutputParser()
+        return chain.invoke({"content": content})
+    except Exception as e:
+        st.error(f"Error summarizing content: {str(e)}")
+        return ""
 
 def main():
     st.set_page_config(
