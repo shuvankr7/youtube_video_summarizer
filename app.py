@@ -20,9 +20,15 @@ from urllib3.util.retry import Retry
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from typing import Optional, Dict, Any
+import google.generativeai as genai
+from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api.formatters import TextFormatter
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Configure Google Gemini
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Initialize session state
 if 'summary' not in st.session_state:
@@ -179,239 +185,99 @@ SUPPORTED_LANGUAGES = [
     {"name": "Urali", "code": "url"}
 ]
 
-def extract_video_id(url):
+def extract_video_id(url: str) -> Optional[str]:
     """Extract video ID from YouTube URL"""
-    pattern = r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})'
-    match = re.search(pattern, url)
-    if match:
-        return match.group(1)
+    patterns = [
+        r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]+)',
+        r'(?:youtube\.com\/embed\/)([a-zA-Z0-9_-]+)',
+        r'(?:youtube\.com\/v\/)([a-zA-Z0-9_-]+)',
+        r'(?:youtube\.com\/e\/)([a-zA-Z0-9_-]+)',
+        r'(?:youtube\.com\/user\/[^\/]+\/)([a-zA-Z0-9_-]+)',
+        r'(?:youtube\.com\/[^\/]+\/live\/)([a-zA-Z0-9_-]+)',
+        r'(?:youtube\.com\/[^\/]+\/)([a-zA-Z0-9_-]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
     return None
 
 def get_video_info(url: str) -> Optional[Dict[str, Any]]:
     """
-    Get video information using YouTube Data API
+    Get video information using YouTube Transcript API
     """
     try:
-        # Get YouTube API key from environment variables
-        api_key = os.getenv("YOUTUBE_API_KEY")
-        if not api_key:
-            st.error("YouTube API key not found. Please set YOUTUBE_API_KEY in your .env file.")
-            return None
-
-        # Extract video ID
         video_id = extract_video_id(url)
         if not video_id:
             st.error("Invalid YouTube URL")
             return None
 
-        # Build YouTube API service
-        youtube = build('youtube', 'v3', developerKey=api_key)
-
-        # Get video details
-        video_response = youtube.videos().list(
-            part='snippet,statistics,contentDetails',
-            id=video_id
-        ).execute()
-
-        if not video_response['items']:
-            st.error("Video not found")
-            return None
-
-        video = video_response['items'][0]
-        return {
-            'title': video['snippet']['title'],
-            'author': video['snippet']['channelTitle'],
-            'length': video['contentDetails']['duration'],
-            'views': video['statistics']['viewCount'],
-            'publish_date': video['snippet']['publishedAt'],
-            'description': video['snippet']['description']
-        }
+        # Get video thumbnail
+        thumbnail_url = f"http://img.youtube.com/vi/{video_id}/0.jpg"
+        
+        # Get transcript to extract some basic info
+        try:
+            transcript = YouTubeTranscriptApi.get_transcript(video_id)
+            if transcript:
+                return {
+                    'title': f"Video ID: {video_id}",
+                    'thumbnail': thumbnail_url,
+                    'has_transcript': True
+                }
+        except:
+            return {
+                'title': f"Video ID: {video_id}",
+                'thumbnail': thumbnail_url,
+                'has_transcript': False
+            }
 
     except Exception as e:
         st.error(f"Error getting video info: {str(e)}")
         return None
 
-def get_proxy():
-    """Get a working proxy from Webshare residential proxy service"""
-    try:
-        # Get Webshare proxy credentials from environment variables
-        webshare_username = os.getenv("WEBSHARE_USERNAME")
-        webshare_password = os.getenv("WEBSHARE_PASSWORD")
-        
-        if not webshare_username or not webshare_password:
-            st.warning("Webshare credentials not found. Please set WEBSHARE_USERNAME and WEBSHARE_PASSWORD in your .env file.")
-            return None
-            
-        # Format proxy URL with Webshare credentials
-        proxy_url = f"http://{webshare_username}:{webshare_password}@p.webshare.io:80"
-        
-        # Test the proxy with proper authentication headers
-        session = requests.Session()
-        session.auth = (webshare_username, webshare_password)
-        
-        retry = Retry(
-            total=3,
-            backoff_factor=0.1,
-            status_forcelist=[500, 502, 503, 504]
-        )
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
-        
-        # Test with a simple request first
-        test_response = session.get(
-            'http://p.webshare.io',
-            proxies={'http': proxy_url, 'https': proxy_url},
-            timeout=10
-        )
-        
-        if test_response.status_code == 200:
-            # If basic test passes, try YouTube
-            youtube_test = session.get(
-                'https://www.youtube.com',
-                proxies={'http': proxy_url, 'https': proxy_url},
-                timeout=10
-            )
-            
-            if youtube_test.status_code == 200:
-                return {'http': proxy_url, 'https': proxy_url}
-            else:
-                st.error("Proxy can access Webshare but not YouTube")
-                return None
-        else:
-            st.error("Proxy authentication failed")
-            return None
-            
-    except Exception as e:
-        st.error(f"Error setting up Webshare proxy: {str(e)}")
-        return None
-
 def get_video_transcript(url: str) -> Optional[str]:
     """
-    Get video transcript using YouTube Data API
+    Get video transcript using YouTube Transcript API
     """
     try:
-        # Get YouTube API key from environment variables
-        api_key = os.getenv("YOUTUBE_API_KEY")
-        if not api_key:
-            st.error("YouTube API key not found. Please set YOUTUBE_API_KEY in your .env file.")
-            return None
-
-        # Extract video ID
         video_id = extract_video_id(url)
         if not video_id:
             st.error("Invalid YouTube URL")
             return None
 
-        # Build YouTube API service
-        youtube = build('youtube', 'v3', developerKey=api_key)
-
-        # Get video captions
-        try:
-            captions = youtube.captions().list(
-                part="snippet",
-                videoId=video_id
-            ).execute()
-
-            if not captions.get('items'):
-                st.error("No captions available for this video")
-                return None
-
-            # Get available languages
-            available_languages = []
-            for caption in captions['items']:
-                available_languages.append({
-                    'code': caption['snippet']['language'],
-                    'name': caption['snippet']['language'],
-                    'is_generated': caption['snippet']['trackKind'] == 'ASR'
-                })
-
-            # Show available languages
-            st.success("Available languages for this video:")
-            for lang in available_languages:
-                st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
-
-            # Try to get English transcript first
-            try:
-                caption_id = next(c['id'] for c in captions['items'] if c['snippet']['language'] == 'en')
-            except StopIteration:
-                # If English not available, try Hindi
-                try:
-                    caption_id = next(c['id'] for c in captions['items'] if c['snippet']['language'] == 'hi')
-                    st.warning("English transcript not available. Using Hindi transcript instead.")
-                except StopIteration:
-                    # If neither English nor Hindi available, get the first available language
-                    caption_id = captions['items'][0]['id']
-                    st.warning(f"Using {captions['items'][0]['snippet']['language']} transcript")
-
-            # Download the transcript
-            transcript = youtube.captions().download(
-                id=caption_id,
-                tfmt='srt'
-            ).execute()
-
-            return transcript
-
-        except HttpError as e:
-            st.error(f"YouTube API error: {str(e)}")
-            return None
+        # Get transcript
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        
+        # Format transcript
+        formatter = TextFormatter()
+        transcript_text = formatter.format_transcript(transcript)
+        
+        return transcript_text
 
     except Exception as e:
         st.error(f"Error getting transcript: {str(e)}")
         return None
 
 def get_available_languages(video_id):
-    """Get available caption languages using YouTube Data API"""
+    """Get available caption languages using YouTube Transcript API"""
     try:
-        # Get YouTube API key from environment variables
-        api_key = os.getenv("YOUTUBE_API_KEY")
-        if not api_key:
-            st.error("YouTube API key not found. Please set YOUTUBE_API_KEY in your .env file.")
-            return None
+        languages = YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        available_languages = []
+        for transcript in languages:
+            available_languages.append({
+                'code': transcript.language_code,
+                'name': transcript.language,
+                'is_generated': transcript.is_generated
+            })
 
-        # Build YouTube API service
-        youtube = build('youtube', 'v3', developerKey=api_key)
+        # Show available languages
+        st.success("Available languages for this video:")
+        for lang in available_languages:
+            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
 
-        # Get video captions
-        try:
-            captions = youtube.captions().list(
-                part="snippet",
-                videoId=video_id
-            ).execute()
-
-            if not captions.get('items'):
-                st.error("No captions available for this video")
-                return None
-
-            # Get available languages
-            available_languages = []
-            for caption in captions['items']:
-                available_languages.append({
-                    'code': caption['snippet']['language'],
-                    'name': caption['snippet']['language'],
-                    'is_generated': caption['snippet']['trackKind'] == 'ASR'
-                })
-
-            # Show available languages
-            st.success("Available languages for this video:")
-            for lang in available_languages:
-                st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
-
-            return available_languages
-
-        except HttpError as e:
-            if 'accessNotConfigured' in str(e):
-                st.error("""YouTube Data API v3 is not enabled for your project. Please:
-                1. Go to https://console.cloud.google.com/
-                2. Select your project
-                3. Go to "APIs & Services" > "Library"
-                4. Search for "YouTube Data API v3"
-                5. Click "Enable"
-                6. Wait a few minutes for the changes to take effect
-                """)
-            else:
-                st.error(f"YouTube API error: {str(e)}")
-            return None
+        return available_languages
 
     except Exception as e:
         st.error(f"Error getting available languages: {str(e)}")
@@ -575,6 +441,21 @@ def summarize_content(content: str) -> str:
         return chain.invoke({"content": content})
     except Exception as e:
         st.error(f"Error summarizing content: {str(e)}")
+        return ""
+
+def generate_summary(transcript: str) -> str:
+    """Generate summary using Google's Gemini Pro model"""
+    try:
+        prompt = """You are a YouTube video summarizer. You will be taking the transcript text
+        and summarizing the entire video and providing the important summary in points
+        within 250 words. Please provide the summary of the text given here: """
+
+        model = genai.GenerativeModel("gemini-pro")
+        response = model.generate_content(prompt + transcript)
+        return response.text
+
+    except Exception as e:
+        st.error(f"Error generating summary: {str(e)}")
         return ""
 
 def main():
