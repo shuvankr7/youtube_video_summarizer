@@ -252,7 +252,7 @@ def get_available_languages(video_id):
         try:
             api_key = os.getenv('YOUTUBE_API_KEY')
             if not api_key:
-                st.warning("YouTube API key not found.")
+                st.warning("YouTube API key not found. Skipping YouTube Data API method.")
             else:
                 youtube = build('youtube', 'v3', developerKey=api_key)
                 request = youtube.captions().list(
@@ -269,7 +269,7 @@ def get_available_languages(video_id):
                             'name': item['snippet']['name'],
                             'is_generated': item['snippet']['trackKind'] == 'ASR'
                         })
-                    st.info(f"Found {len(available_languages)} languages  ")
+                    st.info(f"Found {len(available_languages)} languages using YouTube Data API")
                     return available_languages
         except HttpError as e:
             if 'accessNotConfigured' in str(e):
@@ -518,7 +518,7 @@ def get_video_transcript(url: str) -> Optional[str]:
         # Show available languages
         st.success("Available languages for this video:")
         for lang in languages:
-            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated']})")
+            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
 
         # Try to get transcript using YouTube Data API first
         try:
@@ -531,7 +531,7 @@ def get_video_transcript(url: str) -> Optional[str]:
                 )
                 transcript = request.execute()
                 if transcript:
-                    st.success("Successfully retrieved transcript ")
+                    st.success("Successfully retrieved transcript using YouTube Data API")
                     return transcript
         except Exception as e:
             st.warning(f"YouTube Data API transcript retrieval failed: {str(e)}")
