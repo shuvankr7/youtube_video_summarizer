@@ -268,8 +268,9 @@ def get_transcript_list_with_proxy(video_id):
                 return None
 
 def get_video_info(url):
-    """Get video information using pytube"""
+    """Get video information using pytube with better error handling"""
     try:
+        # First try to get video info with default settings
         yt = YouTube(url)
         return {
             'title': yt.title,
@@ -280,57 +281,91 @@ def get_video_info(url):
             'rating': yt.rating
         }
     except Exception as e:
-        st.error(f"Error getting video information: {str(e)}")
-        return None
+        try:
+            # If first attempt fails, try with different settings
+            yt = YouTube(
+                url,
+                use_oauth=False,
+                allow_oauth_cache=True
+            )
+            return {
+                'title': yt.title,
+                'length': yt.length,
+                'author': yt.author,
+                'publish_date': yt.publish_date,
+                'views': yt.views,
+                'rating': yt.rating
+            }
+        except Exception as e:
+            st.error(f"Error getting video information: {str(e)}")
+            return None
 
 def get_available_languages(video_id):
-    """Get available languages for a video"""
+    """Get available languages for a video with better error handling"""
     try:
         # First try to get video info to ensure video exists
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         video_info = get_video_info(video_url)
         if not video_info:
+            st.error("Could not access video information. The video might be private or unavailable.")
             return None
 
         # Then try to get transcript list
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        if not transcript_list:
+        try:
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            if not transcript_list:
+                st.error("No transcripts available for this video.")
+                return None
+                
+            available_languages = []
+            for transcript in transcript_list:
+                available_languages.append({
+                    'code': transcript.language_code,
+                    'name': transcript.language,
+                    'is_generated': transcript.is_generated
+                })
+            return available_languages
+        except TranscriptsDisabled:
+            st.error("Transcripts are disabled for this video.")
             return None
-            
-        available_languages = []
-        for transcript in transcript_list:
-            available_languages.append({
-                'code': transcript.language_code,
-                'name': transcript.language,
-                'is_generated': transcript.is_generated
-            })
-        return available_languages
+        except NoTranscriptFound:
+            st.error("No transcripts found for this video.")
+            return None
+        except Exception as e:
+            st.error(f"Error retrieving transcripts: {str(e)}")
+            return None
     except Exception as e:
         st.error(f"Error getting available languages: {str(e)}")
         return None
 
 def get_video_transcript(video_id, language_code='en'):
-    """Get transcript for a YouTube video in specified language"""
+    """Get transcript for a YouTube video in specified language with better error handling"""
     try:
         # First try to get video info to ensure video exists
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         video_info = get_video_info(video_url)
         if not video_info:
+            st.error("Could not access video information. The video might be private or unavailable.")
             return None
 
         # Then try to get transcript
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=[language_code])
-        if not transcript_list:
+        try:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=[language_code])
+            if not transcript_list:
+                st.error("No transcript content available.")
+                return None
+                
+            transcript_text = " ".join([t['text'] for t in transcript_list])
+            return transcript_text
+        except NoTranscriptFound:
+            st.error(f"No transcript found for language code: {language_code}")
             return None
-            
-        transcript_text = " ".join([t['text'] for t in transcript_list])
-        return transcript_text
-    except NoTranscriptFound:
-        st.error(f"No transcript found for language code: {language_code}")
-        return None
-    except TranscriptsDisabled:
-        st.error("Transcripts are disabled for this video")
-        return None
+        except TranscriptsDisabled:
+            st.error("Transcripts are disabled for this video")
+            return None
+        except Exception as e:
+            st.error(f"Error retrieving transcript: {str(e)}")
+            return None
     except Exception as e:
         st.error(f"Error getting transcript: {str(e)}")
         return None
