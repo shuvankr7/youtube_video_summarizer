@@ -248,23 +248,29 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
 def get_available_languages(video_id):
     """Get available caption languages using multiple methods"""
     try:
-        # Method 1: Try pytube first
+        # Method 1: Try YouTube Data API
         try:
-            yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
-            captions = yt.captions
-            if captions:
-                available_languages = []
-                for lang_code in captions:
-                    caption = captions[lang_code]
-                    available_languages.append({
-                        'code': lang_code,
-                        'name': caption.name,
-                        'is_generated': caption.code.startswith('a.')
-                    })
-                st.info(f"Found {len(available_languages)} languages using pytube")
-                return available_languages
+            api_key = os.getenv('YOUTUBE_API_KEY')
+            if api_key:
+                youtube = build('youtube', 'v3', developerKey=api_key)
+                request = youtube.captions().list(
+                    part="snippet",
+                    videoId=video_id
+                )
+                response = request.execute()
+                
+                if 'items' in response:
+                    available_languages = []
+                    for item in response['items']:
+                        available_languages.append({
+                            'code': item['snippet']['language'],
+                            'name': item['snippet']['name'],
+                            'is_generated': item['snippet']['trackKind'] == 'ASR'
+                        })
+                    st.info(f"Found {len(available_languages)} languages using YouTube Data API")
+                    return available_languages
         except Exception as e:
-            st.warning(f"Pytube method failed: {str(e)}")
+            st.warning(f"YouTube Data API method failed: {str(e)}")
 
         # Method 2: Try YouTube Transcript API
         try:
@@ -281,27 +287,23 @@ def get_available_languages(video_id):
         except Exception as e:
             st.warning(f"YouTube Transcript API method failed: {str(e)}")
 
-        # Method 3: Check video page for captions
+        # Method 3: Try pytube
         try:
-            response = requests.get(f"https://www.youtube.com/watch?v={video_id}")
-            soup = BeautifulSoup(response.text, 'html.parser')
-            caption_tracks = soup.find_all('track', {'kind': 'captions'})
-            
-            if caption_tracks:
+            yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+            captions = yt.captions
+            if captions:
                 available_languages = []
-                for track in caption_tracks:
-                    lang_code = track.get('srclang', '')
-                    lang_name = track.get('label', '')
-                    is_generated = 'auto' in lang_name.lower()
+                for lang_code in captions:
+                    caption = captions[lang_code]
                     available_languages.append({
                         'code': lang_code,
-                        'name': lang_name,
-                        'is_generated': is_generated
+                        'name': caption.name,
+                        'is_generated': caption.code.startswith('a.')
                     })
-                st.info(f"Found {len(available_languages)} languages using direct page check")
+                st.info(f"Found {len(available_languages)} languages using pytube")
                 return available_languages
         except Exception as e:
-            st.warning(f"Direct page check method failed: {str(e)}")
+            st.warning(f"Pytube method failed: {str(e)}")
 
         st.error("""
         ❌ No captions available for this video.
