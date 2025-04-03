@@ -251,7 +251,9 @@ def get_available_languages(video_id):
         # Method 1: Try YouTube Data API
         try:
             api_key = os.getenv('YOUTUBE_API_KEY')
-            if api_key:
+            if not api_key:
+                st.warning("YouTube API key not found. Skipping YouTube Data API method.")
+            else:
                 youtube = build('youtube', 'v3', developerKey=api_key)
                 request = youtube.captions().list(
                     part="snippet",
@@ -267,9 +269,18 @@ def get_available_languages(video_id):
                             'name': item['snippet']['name'],
                             'is_generated': item['snippet']['trackKind'] == 'ASR'
                         })
+                    st.info(f"Found {len(available_languages)} languages")
                     return available_languages
-        except:
-            pass
+        except HttpError as e:
+            if 'accessNotConfigured' in str(e):
+                st.warning("""
+                YouTube Data API is not enabled. To enable it:
+                1. Go to https://console.developers.google.com/apis/api/youtube.googleapis.com/overview?project=1035805159212
+                2. Click 'Enable API'
+                3. Wait a few minutes for changes to propagate
+                """)
+            else:
+                st.warning(f"YouTube Data API method failed: {str(e)}")
 
         # Method 2: Try YouTube Transcript API
         try:
@@ -281,9 +292,10 @@ def get_available_languages(video_id):
                     'name': transcript.language,
                     'is_generated': transcript.is_generated
                 })
+            st.info(f"Found {len(available_languages)} languages using YouTube Transcript API")
             return available_languages
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"YouTube Transcript API method failed: {str(e)}")
 
         # Method 3: Try pytube
         try:
@@ -298,15 +310,30 @@ def get_available_languages(video_id):
                         'name': caption.name,
                         'is_generated': caption.code.startswith('a.')
                     })
+                st.info(f"Found {len(available_languages)} languages using pytube")
                 return available_languages
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"Pytube method failed: {str(e)}")
 
-        st.error("No captions available for this video")
+        st.error("""
+        ❌ No captions available for this video.
+        
+        This could be because:
+        1. The video creator has disabled captions
+        2. The video is too new and auto-captions haven't been generated yet
+        3. The video is private or unlisted
+        4. The video is region-locked
+        
+        Please try:
+        1. A different video that has captions enabled
+        2. Waiting a few hours for auto-captions to generate
+        3. A video from a channel that typically has captions enabled
+        4. Checking if the video has the CC button enabled on YouTube
+        """)
         return None
 
     except Exception as e:
-        st.error("Error checking available languages")
+        st.error(f"Error checking available languages: {str(e)}")
         return None
 
 def get_video_duration(url):
@@ -488,22 +515,44 @@ def get_video_transcript(url: str) -> Optional[str]:
             st.error("No captions available for this video")
             return None
 
-        # Try YouTube Transcript API first
+        # Show available languages
+        st.success("Available languages for this video:")
+        for lang in languages:
+            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
+
+        # Try to get transcript using YouTube Data API first
+        try:
+            api_key = os.getenv('YOUTUBE_API_KEY')
+            if api_key:
+                youtube = build('youtube', 'v3', developerKey=api_key)
+                request = youtube.captions().download(
+                    id=languages[0]['code'],
+                    videoId=video_id
+                )
+                transcript = request.execute()
+                if transcript:
+                    st.success("Successfully retrieved transcript")
+                    return transcript
+        except Exception as e:
+            st.warning(f"YouTube Data API transcript retrieval failed: {str(e)}")
+
+        # Try YouTube Transcript API as fallback
         try:
             # Try each available language
             for lang in languages:
                 try:
                     transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang['code']])
+                    st.success(f"Successfully retrieved transcript in {lang['name']}")
                     # Format transcript
                     formatter = TextFormatter()
                     transcript_text = formatter.format_transcript(transcript)
                     return transcript_text
                 except:
                     continue
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"YouTube Transcript API failed: {str(e)}")
 
-        # Try pytube as fallback
+        # Try pytube as last resort
         try:
             yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
             captions = yt.captions
@@ -512,17 +561,32 @@ def get_video_transcript(url: str) -> Optional[str]:
                     try:
                         caption = captions[lang_code]
                         transcript = caption.generate_srt_captions()
+                        st.success(f"Successfully retrieved transcript using pytube")
                         return transcript
                     except:
                         continue
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"Pytube transcript retrieval failed: {str(e)}")
 
-        st.error("Could not retrieve transcript for this video")
+        st.error("""
+        ❌ Could not retrieve transcript for this video.
+        
+        This could be because:
+        1. The video creator has disabled captions
+        2. The video is too new and auto-captions haven't been generated yet
+        3. The video is private or unlisted
+        4. The video is region-locked
+        
+        Please try:
+        1. A different video that has captions enabled
+        2. Waiting a few hours for auto-captions to generate
+        3. A video from a channel that typically has captions enabled
+        4. Checking if the video has the CC button enabled on YouTube
+        """)
         return None
 
     except Exception as e:
-        st.error("Error getting transcript")
+        st.error(f"Error getting transcript: {str(e)}")
         return None
 
 def generate_summary(transcript: str) -> str:
@@ -602,12 +666,6 @@ def main():
             color: #666666;
             margin-bottom: 2em;
         }
-        .api-key-info {
-            background-color: #f8f9fa;
-            padding: 1em;
-            border-radius: 5px;
-            margin: 1em 0;
-        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -615,26 +673,19 @@ def main():
     st.markdown('<p class="title-text">🎥 YouTube Video Summarizer</p>', unsafe_allow_html=True)
     st.markdown('<p class="subtitle-text">Get quick, accurate summaries of YouTube videos in multiple languages</p>', unsafe_allow_html=True)
 
-    # API Settings in expander
-    with st.expander("⚙️ API Settings", expanded=False):
-        st.markdown("""
-            <div class="api-key-info">
-                <p>To use this tool, you need a Groq API key. You can get one for free at <a href="https://console.groq.com" target="_blank">console.groq.com</a>.</p>
-                <p>Your API key will be used only for this session and won't be stored permanently.</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
+    # API Settings in expander (full width)
+    with st.expander("⚙️ API Settings"):
+        st.info("If you face any API limitations, you can provide your own Groq API key. Get one at https://console.groq.com . They provide free API key upto a limit, please check their website")
         user_api_key = st.text_input(
-            "Groq API Key", 
+            "Groq API Key (Optional)", 
             value=st.session_state.user_api_key,
             type="password",
-            help="Enter your Groq API key to enable video summarization"
+            help="Your API key will be used instead of the default key if provided"
         )
-        
         if user_api_key != st.session_state.user_api_key:
             st.session_state.user_api_key = user_api_key
             if user_api_key:
-                st.success("✅ API key updated successfully!")
+                st.success("✅ API key updated!")
 
     # Main content in a container for better organization
     with st.container():
@@ -701,23 +752,41 @@ def main():
 
             # Generate summary section
             if st.button("Generate Summary", help="Click to generate video summary"):
-                if not st.session_state.user_api_key:
-                    st.error("❌ Please enter your Groq API key in the settings above")
-                    return
-                    
                 with st.spinner("🔄 Generating summary..."):
-                    transcript = get_video_transcript(url)
-                    if transcript:
-                        st.session_state.summary = generate_summary(transcript)
-                        st.session_state.language_code = language_code
-                        st.session_state.translated_summary = None
+                    st.session_state.summary = summarize_video(url, language_code)
+                    st.session_state.language_code = language_code
+                    st.session_state.translated_summary = None
 
-            # Display summary
+            # Display summary and translation options
             if st.session_state.summary:
                 st.markdown("### 📝 Video Summary")
                 st.markdown(f"""
                     <div style='background-color: #f8f9fa; padding: 1.5em; border-radius: 5px; margin: 1em 0;'>
                         {st.session_state.summary}
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Translation section with improved UI
+                st.markdown("### 🌐 Translation Options")
+                target_language = st.selectbox(
+                    "Select Target Language (Default Best option is English)",
+                    options=[lang["name"] for lang in SUPPORTED_LANGUAGES],
+                    index=0
+                )
+                
+                if st.button("Translate", help="Click to translate the summary"):
+                    with st.spinner(f"🔄 Translating to {target_language}..."):
+                        st.session_state.translated_summary = translate_summary(
+                            st.session_state.summary, 
+                            target_language
+                        )
+
+            # Display translation with styling
+            if st.session_state.translated_summary:
+                st.markdown(f"### 🌍 {target_language} Translation")
+                st.markdown(f"""
+                    <div style='background-color: #f8f9fa; padding: 1.5em; border-radius: 5px; margin: 1em 0;'>
+                        {st.session_state.translated_summary}
                     </div>
                 """, unsafe_allow_html=True)
 
