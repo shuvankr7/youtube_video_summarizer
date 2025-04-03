@@ -270,13 +270,8 @@ def get_transcript_list_with_proxy(video_id):
 def get_video_info(url):
     """Get video information using pytube with better error handling"""
     try:
-        # Try with different configurations
-        yt = YouTube(
-            url,
-            use_oauth=False,
-            allow_oauth_cache=True,
-            defer_prefetch_init=True
-        )
+        # Try with basic configuration
+        yt = YouTube(url)
         
         # Try to get basic info first
         try:
