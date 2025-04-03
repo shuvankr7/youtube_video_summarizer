@@ -248,7 +248,42 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
 def get_available_languages(video_id):
     """Get available caption languages using multiple methods"""
     try:
-        # Method 1: Try YouTube Data API
+        # Method 1: Try YouTube Transcript API first (no API key needed)
+        try:
+            languages = YouTubeTranscriptApi.list_transcripts(video_id)
+            available_languages = []
+            for transcript in languages:
+                available_languages.append({
+                    'code': transcript.language_code,
+                    'name': transcript.language,
+                    'is_generated': transcript.is_generated
+                })
+            if available_languages:
+                return available_languages
+        except Exception as e:
+            print(f"YouTube Transcript API error: {str(e)}")
+            pass
+
+        # Method 2: Try pytube (no API key needed)
+        try:
+            yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+            captions = yt.captions
+            if captions:
+                available_languages = []
+                for lang_code in captions:
+                    caption = captions[lang_code]
+                    available_languages.append({
+                        'code': lang_code,
+                        'name': caption.name,
+                        'is_generated': caption.code.startswith('a.')
+                    })
+                if available_languages:
+                    return available_languages
+        except Exception as e:
+            print(f"Pytube error: {str(e)}")
+            pass
+
+        # Method 3: Try YouTube Data API as last resort
         try:
             api_key = os.getenv('YOUTUBE_API_KEY')
             if api_key:
@@ -272,49 +307,14 @@ def get_available_languages(video_id):
                         return available_languages
         except HttpError as e:
             if e.resp.status == 403:
-                st.error("YouTube Data API is not enabled. Please enable it in the Google Cloud Console.")
+                print("YouTube Data API is not enabled. Skipping this method.")
             elif e.resp.status == 404:
-                st.error("Video not found or captions not available")
+                print("Video not found or captions not available")
             else:
-                st.error(f"YouTube Data API error: {str(e)}")
+                print(f"YouTube Data API error: {str(e)}")
             pass
         except Exception as e:
             print(f"YouTube Data API error: {str(e)}")
-            pass
-
-        # Method 2: Try YouTube Transcript API
-        try:
-            languages = YouTubeTranscriptApi.list_transcripts(video_id)
-            available_languages = []
-            for transcript in languages:
-                available_languages.append({
-                    'code': transcript.language_code,
-                    'name': transcript.language,
-                    'is_generated': transcript.is_generated
-                })
-            if available_languages:
-                return available_languages
-        except Exception as e:
-            print(f"YouTube Transcript API error: {str(e)}")
-            pass
-
-        # Method 3: Try pytube
-        try:
-            yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
-            captions = yt.captions
-            if captions:
-                available_languages = []
-                for lang_code in captions:
-                    caption = captions[lang_code]
-                    available_languages.append({
-                        'code': lang_code,
-                        'name': caption.name,
-                        'is_generated': caption.code.startswith('a.')
-                    })
-                if available_languages:
-                    return available_languages
-        except Exception as e:
-            print(f"Pytube error: {str(e)}")
             pass
 
         st.error("No captions available for this video")
