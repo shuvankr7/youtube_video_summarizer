@@ -1,5 +1,5 @@
-Attempt 1 failed. Retrying in 2 seconds...
-
-Attempt 2 failed. Retrying in 2 seconds...
-
-Error getting transcript after 3 attempts: HTTP Error 400: Bad Request
+Script execution error
+File "/mount/src/youtube_video_summarizer/app.py", line 1
+  Attempt 1 failed. Retrying in 2 seconds...
+          ^
+SyntaxError: invalid syntax
