@@ -1,5 +1,5 @@
 import streamlit as st
-from langchain.document_loaders import YoutubeLoader
+from langchain_community.document_loaders import YoutubeLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_groq import ChatGroq
 from langchain.chains import LLMChain
@@ -7,8 +7,14 @@ from langchain.prompts import PromptTemplate
 import os
 import re
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+from youtube_transcript_api.formatters import TextFormatter
 from dotenv import load_dotenv
 from pytube import YouTube
+import requests
+import random
+import time
+from urllib.parse import urlparse
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -351,6 +357,73 @@ def translate_summary(summary, target_language='en'):
     except Exception as e:
         st.error(f"Error translating summary: {str(e)}")
         return None
+
+def get_proxy():
+    """Get a working proxy from a reliable proxy service"""
+    try:
+        # Try to get a proxy from a reliable proxy service
+        response = requests.get('https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all')
+        if response.status_code == 200:
+            proxies = response.text.strip().split('\r\n')
+            for proxy in proxies:
+                if proxy:
+                    proxy_url = f"http://{proxy}"
+                    try:
+                        # Test the proxy
+                        test_response = requests.get(
+                            'https://www.youtube.com',
+                            proxies={'http': proxy_url, 'https': proxy_url},
+                            timeout=5
+                        )
+                        if test_response.status_code == 200:
+                            return {'http': proxy_url, 'https': proxy_url}
+                    except:
+                        continue
+    except:
+        pass
+    return None
+
+def get_transcript_with_proxy(video_id, languages=[]):
+    """Get transcript using proxy if needed"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # First try without proxy
+            return YouTubeTranscriptApi.get_transcript(video_id, languages=languages)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                # Try with proxy
+                proxy = get_proxy()
+                if proxy:
+                    try:
+                        return YouTubeTranscriptApi.get_transcript(video_id, languages=languages, proxies=proxy)
+                    except:
+                        time.sleep(2)  # Wait before next attempt
+                        continue
+            else:
+                st.error("Could not retrieve transcript. Please try again later or use a different video.")
+                return None
+
+def get_transcript_list_with_proxy(video_id):
+    """Get transcript list using proxy if needed"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # First try without proxy
+            return YouTubeTranscriptApi.list_transcripts(video_id)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                # Try with proxy
+                proxy = get_proxy()
+                if proxy:
+                    try:
+                        return YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
+                    except:
+                        time.sleep(2)  # Wait before next attempt
+                        continue
+            else:
+                st.error("Could not retrieve available languages. Please try again later or use a different video.")
+                return None
 
 def main():
     st.set_page_config(
