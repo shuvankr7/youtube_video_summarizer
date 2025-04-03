@@ -657,20 +657,6 @@ def main():
     st.markdown('<p class="title-text">🎥 YouTube Video Summarizer</p>', unsafe_allow_html=True)
     st.markdown('<p class="subtitle-text">Get quick, accurate summaries of YouTube videos in multiple languages</p>', unsafe_allow_html=True)
 
-    # API Settings in expander (full width)
-    with st.expander("⚙️ API Settings"):
-        st.info("If you face any API limitations, you can provide your own Groq API key. Get one at https://console.groq.com . They provide free API key upto a limit, please check their website")
-        user_api_key = st.text_input(
-            "Groq API Key (Optional)", 
-            value=st.session_state.user_api_key,
-            type="password",
-            help="Your API key will be used instead of the default key if provided"
-        )
-        if user_api_key != st.session_state.user_api_key:
-            st.session_state.user_api_key = user_api_key
-            if user_api_key:
-                st.success("✅ API key updated!")
-
     # Main content in a container for better organization
     with st.container():
         # URL input section with improved styling
@@ -737,40 +723,18 @@ def main():
             # Generate summary section
             if st.button("Generate Summary", help="Click to generate video summary"):
                 with st.spinner("🔄 Generating summary..."):
-                    st.session_state.summary = summarize_video(url, language_code)
-                    st.session_state.language_code = language_code
-                    st.session_state.translated_summary = None
+                    transcript = get_video_transcript(url)
+                    if transcript:
+                        st.session_state.summary = generate_summary(transcript)
+                        st.session_state.language_code = language_code
+                        st.session_state.translated_summary = None
 
-            # Display summary and translation options
+            # Display summary
             if st.session_state.summary:
                 st.markdown("### 📝 Video Summary")
                 st.markdown(f"""
                     <div style='background-color: #f8f9fa; padding: 1.5em; border-radius: 5px; margin: 1em 0;'>
                         {st.session_state.summary}
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                # Translation section with improved UI
-                st.markdown("### 🌐 Translation Options")
-                target_language = st.selectbox(
-                    "Select Target Language (Default Best option is English)",
-                    options=[lang["name"] for lang in SUPPORTED_LANGUAGES],
-                    index=0
-                )
-                
-                if st.button("Translate", help="Click to translate the summary"):
-                    with st.spinner(f"🔄 Translating to {target_language}..."):
-                        st.session_state.translated_summary = translate_summary(
-                            st.session_state.summary, 
-                            target_language
-                        )
-
-            # Display translation with styling
-            if st.session_state.translated_summary:
-                st.markdown(f"### 🌍 {target_language} Translation")
-                st.markdown(f"""
-                    <div style='background-color: #f8f9fa; padding: 1.5em; border-radius: 5px; margin: 1em 0;'>
-                        {st.session_state.translated_summary}
                     </div>
                 """, unsafe_allow_html=True)
 
