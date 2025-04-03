@@ -261,9 +261,10 @@ def get_available_languages(video_id):
                         'name': caption.name,
                         'is_generated': caption.code.startswith('a.')
                     })
+                st.info(f"Found {len(available_languages)} languages using pytube")
                 return available_languages
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"Pytube method failed: {str(e)}")
 
         # Method 2: Try YouTube Transcript API
         try:
@@ -275,9 +276,10 @@ def get_available_languages(video_id):
                     'name': transcript.language,
                     'is_generated': transcript.is_generated
                 })
+            st.info(f"Found {len(available_languages)} languages using YouTube Transcript API")
             return available_languages
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"YouTube Transcript API method failed: {str(e)}")
 
         # Method 3: Check video page for captions
         try:
@@ -296,9 +298,10 @@ def get_available_languages(video_id):
                         'name': lang_name,
                         'is_generated': is_generated
                     })
+                st.info(f"Found {len(available_languages)} languages using direct page check")
                 return available_languages
-        except:
-            pass
+        except Exception as e:
+            st.warning(f"Direct page check method failed: {str(e)}")
 
         st.error("""
         ❌ No captions available for this video.
@@ -307,11 +310,13 @@ def get_available_languages(video_id):
         1. The video creator has disabled captions
         2. The video is too new and auto-captions haven't been generated yet
         3. The video is private or unlisted
+        4. The video is region-locked
         
         Please try:
         1. A different video that has captions enabled
         2. Waiting a few hours for auto-captions to generate
         3. A video from a channel that typically has captions enabled
+        4. Checking if the video has the CC button enabled on YouTube
         """)
         return None
 
