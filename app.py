@@ -17,8 +17,6 @@ from urllib.parse import urlparse
 import json
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from typing import Optional, Dict, Any
@@ -181,19 +179,6 @@ SUPPORTED_LANGUAGES = [
     {"name": "Urali", "code": "url"}
 ]
 
-def get_youtube_service():
-    """Create and return a YouTube API service object"""
-    api_key = os.getenv("YOUTUBE_API_KEY")
-    if not api_key:
-        st.error("YouTube API key not found. Please set the YOUTUBE_API_KEY environment variable.")
-        return None
-    try:
-        youtube = build('youtube', 'v3', developerKey=api_key)
-        return youtube
-    except Exception as e:
-        st.error(f"Error creating YouTube service: {str(e)}")
-        return None
-
 def extract_video_id(url):
     """Extract video ID from YouTube URL"""
     pattern = r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})'
@@ -221,36 +206,18 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
         return None
 
 def get_available_languages(video_id):
-    """Get available caption languages using YouTube Data API"""
-    youtube = get_youtube_service()
-    if not youtube:
-        return None
-
+    """Get available caption languages using youtube-transcript-api"""
     try:
-        request = youtube.captions().list(
-            part="snippet",
-            videoId=video_id
-        )
-        response = request.execute()
-
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
         available_languages = []
-        for item in response.get('items', []):
-            lang_code = item['snippet']['language']
-            lang_name = item['snippet']['name']
-            is_auto = 'auto-generated' in lang_name.lower()
-            
+        for transcript in transcript_list:
             available_languages.append({
-                'code': lang_code,
-                'name': lang_name,
-                'is_generated': is_auto
+                'code': transcript.language_code,
+                'name': transcript.language,
+                'is_generated': transcript.is_generated
             })
-
-        if not available_languages:
-            st.error("No captions available for this video")
-            return None
-
         return available_languages
-    except HttpError as e:
+    except Exception as e:
         st.error(f"Error getting available languages: {str(e)}")
         return None
 
