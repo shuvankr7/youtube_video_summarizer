@@ -270,6 +270,14 @@ def get_available_languages(video_id):
                             })
                     if available_languages:
                         return available_languages
+        except HttpError as e:
+            if e.resp.status == 403:
+                st.error("YouTube Data API is not enabled. Please enable it in the Google Cloud Console.")
+            elif e.resp.status == 404:
+                st.error("Video not found or captions not available")
+            else:
+                st.error(f"YouTube Data API error: {str(e)}")
+            pass
         except Exception as e:
             print(f"YouTube Data API error: {str(e)}")
             pass
