@@ -251,7 +251,9 @@ def get_available_languages(video_id):
         # Method 1: Try YouTube Data API
         try:
             api_key = os.getenv('YOUTUBE_API_KEY')
-            if api_key:
+            if not api_key:
+                st.warning("YouTube API key not found. Skipping YouTube Data API method.")
+            else:
                 youtube = build('youtube', 'v3', developerKey=api_key)
                 request = youtube.captions().list(
                     part="snippet",
@@ -269,8 +271,16 @@ def get_available_languages(video_id):
                         })
                     st.info(f"Found {len(available_languages)} languages using YouTube Data API")
                     return available_languages
-        except Exception as e:
-            st.warning(f"YouTube Data API method failed: {str(e)}")
+        except HttpError as e:
+            if 'accessNotConfigured' in str(e):
+                st.warning("""
+                YouTube Data API is not enabled. To enable it:
+                1. Go to https://console.developers.google.com/apis/api/youtube.googleapis.com/overview?project=1035805159212
+                2. Click 'Enable API'
+                3. Wait a few minutes for changes to propagate
+                """)
+            else:
+                st.warning(f"YouTube Data API method failed: {str(e)}")
 
         # Method 2: Try YouTube Transcript API
         try:
@@ -510,26 +520,70 @@ def get_video_transcript(url: str) -> Optional[str]:
         for lang in languages:
             st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
 
-        # Try to get transcript
+        # Try to get transcript using YouTube Data API first
         try:
-            # Try English first
-            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
-            st.success("Using English transcript")
-        except:
-            try:
-                # Try Hindi if English not available
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi'])
-                st.warning("English transcript not available. Using Hindi transcript instead.")
-            except:
-                # Try first available language
-                first_lang = languages[0]['code']
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[first_lang])
-                st.warning(f"Using {languages[0]['name']} transcript")
+            api_key = os.getenv('YOUTUBE_API_KEY')
+            if api_key:
+                youtube = build('youtube', 'v3', developerKey=api_key)
+                request = youtube.captions().download(
+                    id=languages[0]['code'],
+                    videoId=video_id
+                )
+                transcript = request.execute()
+                if transcript:
+                    st.success("Successfully retrieved transcript using YouTube Data API")
+                    return transcript
+        except Exception as e:
+            st.warning(f"YouTube Data API transcript retrieval failed: {str(e)}")
 
-        # Format transcript
-        formatter = TextFormatter()
-        transcript_text = formatter.format_transcript(transcript)
-        return transcript_text
+        # Try YouTube Transcript API as fallback
+        try:
+            # Try each available language
+            for lang in languages:
+                try:
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang['code']])
+                    st.success(f"Successfully retrieved transcript in {lang['name']}")
+                    # Format transcript
+                    formatter = TextFormatter()
+                    transcript_text = formatter.format_transcript(transcript)
+                    return transcript_text
+                except:
+                    continue
+        except Exception as e:
+            st.warning(f"YouTube Transcript API failed: {str(e)}")
+
+        # Try pytube as last resort
+        try:
+            yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+            captions = yt.captions
+            if captions:
+                for lang_code in captions:
+                    try:
+                        caption = captions[lang_code]
+                        transcript = caption.generate_srt_captions()
+                        st.success(f"Successfully retrieved transcript using pytube")
+                        return transcript
+                    except:
+                        continue
+        except Exception as e:
+            st.warning(f"Pytube transcript retrieval failed: {str(e)}")
+
+        st.error("""
+        ❌ Could not retrieve transcript for this video.
+        
+        This could be because:
+        1. The video creator has disabled captions
+        2. The video is too new and auto-captions haven't been generated yet
+        3. The video is private or unlisted
+        4. The video is region-locked
+        
+        Please try:
+        1. A different video that has captions enabled
+        2. Waiting a few hours for auto-captions to generate
+        3. A video from a channel that typically has captions enabled
+        4. Checking if the video has the CC button enabled on YouTube
+        """)
+        return None
 
     except Exception as e:
         st.error(f"Error getting transcript: {str(e)}")
