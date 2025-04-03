@@ -270,35 +270,41 @@ def get_transcript_list_with_proxy(video_id):
 def get_video_info(url):
     """Get video information using pytube with better error handling"""
     try:
-        # First try to get video info with default settings
-        yt = YouTube(url)
+        # Try with different configurations
+        yt = YouTube(
+            url,
+            use_oauth=False,
+            allow_oauth_cache=True,
+            defer_prefetch_init=True
+        )
+        
+        # Try to get basic info first
+        try:
+            title = yt.title
+        except:
+            title = "Unknown Title"
+            
+        try:
+            length = yt.length
+        except:
+            length = 0
+            
+        try:
+            author = yt.author
+        except:
+            author = "Unknown Author"
+            
         return {
-            'title': yt.title,
-            'length': yt.length,
-            'author': yt.author,
-            'publish_date': yt.publish_date,
-            'views': yt.views,
-            'rating': yt.rating
+            'title': title,
+            'length': length,
+            'author': author,
+            'publish_date': None,  # Skip potentially problematic fields
+            'views': None,
+            'rating': None
         }
     except Exception as e:
-        try:
-            # If first attempt fails, try with different settings
-            yt = YouTube(
-                url,
-                use_oauth=False,
-                allow_oauth_cache=True
-            )
-            return {
-                'title': yt.title,
-                'length': yt.length,
-                'author': yt.author,
-                'publish_date': yt.publish_date,
-                'views': yt.views,
-                'rating': yt.rating
-            }
-        except Exception as e:
-            st.error(f"Error getting video information: {str(e)}")
-            return None
+        st.error(f"Error getting video information: {str(e)}")
+        return None
 
 def get_available_languages(video_id):
     """Get available languages for a video with better error handling"""
@@ -310,30 +316,30 @@ def get_available_languages(video_id):
             st.error("Could not access video information. The video might be private or unavailable.")
             return None
 
-        # Then try to get transcript list
-        try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            if not transcript_list:
-                st.error("No transcripts available for this video.")
-                return None
-                
-            available_languages = []
-            for transcript in transcript_list:
-                available_languages.append({
-                    'code': transcript.language_code,
-                    'name': transcript.language,
-                    'is_generated': transcript.is_generated
-                })
-            return available_languages
-        except TranscriptsDisabled:
-            st.error("Transcripts are disabled for this video.")
-            return None
-        except NoTranscriptFound:
-            st.error("No transcripts found for this video.")
-            return None
-        except Exception as e:
-            st.error(f"Error retrieving transcripts: {str(e)}")
-            return None
+        # Then try to get transcript list with retries
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                if not transcript_list:
+                    st.error("No transcripts available for this video.")
+                    return None
+                    
+                available_languages = []
+                for transcript in transcript_list:
+                    available_languages.append({
+                        'code': transcript.language_code,
+                        'name': transcript.language,
+                        'is_generated': transcript.is_generated
+                    })
+                return available_languages
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2)  # Wait before retry
+                    continue
+                else:
+                    st.error(f"Error retrieving transcripts: {str(e)}")
+                    return None
     except Exception as e:
         st.error(f"Error getting available languages: {str(e)}")
         return None
@@ -348,24 +354,24 @@ def get_video_transcript(video_id, language_code='en'):
             st.error("Could not access video information. The video might be private or unavailable.")
             return None
 
-        # Then try to get transcript
-        try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=[language_code])
-            if not transcript_list:
-                st.error("No transcript content available.")
-                return None
-                
-            transcript_text = " ".join([t['text'] for t in transcript_list])
-            return transcript_text
-        except NoTranscriptFound:
-            st.error(f"No transcript found for language code: {language_code}")
-            return None
-        except TranscriptsDisabled:
-            st.error("Transcripts are disabled for this video")
-            return None
-        except Exception as e:
-            st.error(f"Error retrieving transcript: {str(e)}")
-            return None
+        # Then try to get transcript with retries
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=[language_code])
+                if not transcript_list:
+                    st.error("No transcript content available.")
+                    return None
+                    
+                transcript_text = " ".join([t['text'] for t in transcript_list])
+                return transcript_text
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2)  # Wait before retry
+                    continue
+                else:
+                    st.error(f"Error retrieving transcript: {str(e)}")
+                    return None
     except Exception as e:
         st.error(f"Error getting transcript: {str(e)}")
         return None
