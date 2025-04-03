@@ -518,7 +518,7 @@ def get_video_transcript(url: str) -> Optional[str]:
         # Show available languages
         st.success("Available languages for this video:")
         for lang in languages:
-            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else None})")
+            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated']})")
 
         # Try to get transcript using YouTube Data API first
         try:
