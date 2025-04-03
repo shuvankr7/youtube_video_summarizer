@@ -6,3 +6,4 @@ langchain==0.1.12
 langchain-community>=0.0.28
 langchain-groq>=0.1.2
 langchain-core>=0.1.42
+bs4 
