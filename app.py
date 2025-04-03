@@ -302,7 +302,7 @@ def get_video_info(url):
         return None
 
 def get_available_languages(video_id):
-    """Get available languages for a video with better error handling"""
+    """Get available languages for a video using pytube captions"""
     try:
         # First try to get video info to ensure video exists
         video_url = f"https://www.youtube.com/watch?v={video_id}"
@@ -311,36 +311,30 @@ def get_available_languages(video_id):
             st.error("Could not access video information. The video might be private or unavailable.")
             return None
 
-        # Then try to get transcript list with retries
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-                if not transcript_list:
-                    st.error("No transcripts available for this video.")
-                    return None
-                    
-                available_languages = []
-                for transcript in transcript_list:
-                    available_languages.append({
-                        'code': transcript.language_code,
-                        'name': transcript.language,
-                        'is_generated': transcript.is_generated
-                    })
-                return available_languages
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    time.sleep(2)  # Wait before retry
-                    continue
-                else:
-                    st.error(f"Error retrieving transcripts: {str(e)}")
-                    return None
+        # Get available captions
+        yt = YouTube(video_url)
+        captions = yt.captions
+        
+        if not captions:
+            st.error("No captions available for this video.")
+            return None
+            
+        available_languages = []
+        for lang_code in captions:
+            caption = captions[lang_code]
+            available_languages.append({
+                'code': lang_code,
+                'name': caption.name,
+                'is_generated': caption.code.startswith('a.')
+            })
+            
+        return available_languages
     except Exception as e:
         st.error(f"Error getting available languages: {str(e)}")
         return None
 
 def get_video_transcript(video_id, language_code='en'):
-    """Get transcript for a YouTube video in specified language with better error handling"""
+    """Get transcript for a YouTube video in specified language using pytube captions"""
     try:
         # First try to get video info to ensure video exists
         video_url = f"https://www.youtube.com/watch?v={video_id}"
@@ -349,24 +343,30 @@ def get_video_transcript(video_id, language_code='en'):
             st.error("Could not access video information. The video might be private or unavailable.")
             return None
 
-        # Then try to get transcript with retries
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=[language_code])
-                if not transcript_list:
-                    st.error("No transcript content available.")
-                    return None
-                    
-                transcript_text = " ".join([t['text'] for t in transcript_list])
-                return transcript_text
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    time.sleep(2)  # Wait before retry
-                    continue
-                else:
-                    st.error(f"Error retrieving transcript: {str(e)}")
-                    return None
+        # Get captions
+        yt = YouTube(video_url)
+        captions = yt.captions
+        
+        if not captions:
+            st.error("No captions available for this video.")
+            return None
+            
+        # Try to get the requested language caption
+        if language_code not in captions:
+            st.error(f"No captions available for language code: {language_code}")
+            return None
+            
+        caption = captions[language_code]
+        transcript_text = caption.generate_srt_captions()
+        
+        # Convert SRT to plain text
+        lines = transcript_text.split('\n')
+        text_lines = []
+        for i in range(0, len(lines), 4):
+            if i + 2 < len(lines):
+                text_lines.append(lines[i + 2])
+                
+        return ' '.join(text_lines)
     except Exception as e:
         st.error(f"Error getting transcript: {str(e)}")
         return None
