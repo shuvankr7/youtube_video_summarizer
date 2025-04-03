@@ -267,10 +267,33 @@ def get_transcript_list_with_proxy(video_id):
                 st.error("Could not retrieve available languages. Please try again later or use a different video.")
                 return None
 
+def get_video_info(url):
+    """Get video information using pytube"""
+    try:
+        yt = YouTube(url)
+        return {
+            'title': yt.title,
+            'length': yt.length,
+            'author': yt.author,
+            'publish_date': yt.publish_date,
+            'views': yt.views,
+            'rating': yt.rating
+        }
+    except Exception as e:
+        st.error(f"Error getting video information: {str(e)}")
+        return None
+
 def get_available_languages(video_id):
     """Get available languages for a video"""
     try:
-        transcript_list = get_transcript_list_with_proxy(video_id)
+        # First try to get video info to ensure video exists
+        video_url = f"https://www.youtube.com/watch?v={video_id}"
+        video_info = get_video_info(video_url)
+        if not video_info:
+            return None
+
+        # Then try to get transcript list
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
         if not transcript_list:
             return None
             
@@ -289,7 +312,14 @@ def get_available_languages(video_id):
 def get_video_transcript(video_id, language_code='en'):
     """Get transcript for a YouTube video in specified language"""
     try:
-        transcript_list = get_transcript_with_proxy(video_id, languages=[language_code])
+        # First try to get video info to ensure video exists
+        video_url = f"https://www.youtube.com/watch?v={video_id}"
+        video_info = get_video_info(video_url)
+        if not video_info:
+            return None
+
+        # Then try to get transcript
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=[language_code])
         if not transcript_list:
             return None
             
