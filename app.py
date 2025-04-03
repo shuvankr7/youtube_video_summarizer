@@ -259,16 +259,19 @@ def get_available_languages(video_id):
                 )
                 response = request.execute()
                 
-                if 'items' in response:
+                if 'items' in response and response['items']:
                     available_languages = []
                     for item in response['items']:
-                        available_languages.append({
-                            'code': item['snippet']['language'],
-                            'name': item['snippet']['name'],
-                            'is_generated': item['snippet']['trackKind'] == 'ASR'
-                        })
-                    return available_languages
-        except:
+                        if 'snippet' in item and 'language' in item['snippet']:
+                            available_languages.append({
+                                'code': item['snippet']['language'],
+                                'name': item['snippet'].get('name', item['snippet']['language']),
+                                'is_generated': item['snippet'].get('trackKind', '') == 'ASR'
+                            })
+                    if available_languages:
+                        return available_languages
+        except Exception as e:
+            print(f"YouTube Data API error: {str(e)}")
             pass
 
         # Method 2: Try YouTube Transcript API
@@ -281,8 +284,10 @@ def get_available_languages(video_id):
                     'name': transcript.language,
                     'is_generated': transcript.is_generated
                 })
-            return available_languages
-        except:
+            if available_languages:
+                return available_languages
+        except Exception as e:
+            print(f"YouTube Transcript API error: {str(e)}")
             pass
 
         # Method 3: Try pytube
@@ -298,14 +303,17 @@ def get_available_languages(video_id):
                         'name': caption.name,
                         'is_generated': caption.code.startswith('a.')
                     })
-                return available_languages
-        except:
+                if available_languages:
+                    return available_languages
+        except Exception as e:
+            print(f"Pytube error: {str(e)}")
             pass
 
         st.error("No captions available for this video")
         return None
 
     except Exception as e:
+        print(f"General error: {str(e)}")
         st.error("Error checking available languages")
         return None
 
