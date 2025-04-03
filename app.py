@@ -6,8 +6,8 @@ from langchain.chains import LLMChain
 from langchain.prompts import PromptTemplate
 import os
 import re
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
-from youtube_transcript_api.formatters import TextFormatter
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from dotenv import load_dotenv
 from pytube import YouTube
 import requests
@@ -262,102 +262,82 @@ def get_proxy():
 
 def get_video_transcript(url: str) -> Optional[str]:
     """
-    Get video transcript using youtube-transcript-api
+    Get video transcript using pytube
     """
-    max_retries = 3
-    retry_delay = 2  # seconds
-    
-    # Extract video ID
-    video_id = extract_video_id(url)
-    if not video_id:
-        st.error("Invalid YouTube URL")
-        return None
-    
-    for attempt in range(max_retries):
+    try:
+        yt = YouTube(url)
+        
+        # Get available captions
+        captions = yt.captions
+        if not captions:
+            st.error("No captions available for this video")
+            return None
+            
+        # Show available languages
+        available_languages = []
+        for lang_code in captions:
+            caption = captions[lang_code]
+            available_languages.append({
+                'code': lang_code,
+                'name': caption.name,
+                'is_generated': caption.code.startswith('a.')
+            })
+            
+        st.success("Available languages for this video:")
+        for lang in available_languages:
+            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
+            
+        # Try to get English transcript first
         try:
-            # Get available transcripts
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            
-            # Get all available languages
-            available_languages = []
-            for transcript in transcript_list:
-                available_languages.append({
-                    'code': transcript.language_code,
-                    'name': transcript.language,
-                    'is_generated': transcript.is_generated
-                })
-            
-            # Show available languages to user
-            st.info("Available languages for this video:")
-            for lang in available_languages:
-                st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
-            
-            # Try to get English transcript first
+            caption = captions['en']
+            st.success("Using English transcript")
+        except KeyError:
+            # If English not available, try Hindi
             try:
-                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
-                st.success("Using English transcript")
-            except:
-                # If English not available, try Hindi
-                try:
-                    transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi'])
-                    st.warning("English transcript not available. Using Hindi transcript instead.")
-                except:
-                    # If neither English nor Hindi available, get the first available language
-                    transcript = YouTubeTranscriptApi.get_transcript(video_id)
-                    st.warning(f"Using {transcript_list[0].language} transcript")
-            
-            # Convert transcript to text
-            transcript_text = ""
-            for entry in transcript:
-                transcript_text += entry['text'] + " "
-            
-            return transcript_text.strip()
-            
-        except Exception as e:
-            if attempt < max_retries - 1:
-                st.warning(f"Attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                continue
-            else:
-                st.error(f"Error getting transcript after {max_retries} attempts: {str(e)}")
-                return None
+                caption = captions['hi']
+                st.warning("English transcript not available. Using Hindi transcript instead.")
+            except KeyError:
+                # If neither English nor Hindi available, get the first available language
+                first_lang = list(captions.keys())[0]
+                caption = captions[first_lang]
+                st.warning(f"Using {captions[first_lang].name} transcript")
+                
+        # Get transcript text
+        transcript_text = caption.generate_srt_captions()
+        return transcript_text
+        
+    except Exception as e:
+        st.error(f"Error getting transcript: {str(e)}")
+        return None
 
 def get_available_languages(video_id):
-    """Get available caption languages"""
-    max_retries = 3
-    retry_delay = 2  # seconds
-    
-    for attempt in range(max_retries):
-        try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+    """Get available caption languages using pytube"""
+    try:
+        yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+        captions = yt.captions
+        
+        if not captions:
+            st.error("No captions available for this video")
+            return None
             
-            available_languages = []
-            for transcript in transcript_list:
-                available_languages.append({
-                    'code': transcript.language_code,
-                    'name': transcript.language,
-                    'is_generated': transcript.is_generated
-                })
+        available_languages = []
+        for lang_code in captions:
+            caption = captions[lang_code]
+            available_languages.append({
+                'code': lang_code,
+                'name': caption.name,
+                'is_generated': caption.code.startswith('a.')
+            })
             
-            if not available_languages:
-                st.error("No languages found for this video")
-                return None
+        st.success("Available languages for this video:")
+        for lang in available_languages:
+            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
             
-            # Show available languages
-            st.success("Successfully retrieved available languages:")
-            for lang in available_languages:
-                st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
-            
-            return available_languages
-            
-        except Exception as e:
-            if attempt < max_retries - 1:
-                st.warning(f"Attempt {attempt + 1} failed. Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                continue
-            else:
-                st.error(f"Error getting available languages after {max_retries} attempts: {str(e)}")
-                return None
+        return available_languages
+        
+    except Exception as e:
+        st.error(f"Error getting available languages: {str(e)}")
+        return None
 
 def get_video_duration(url):
     """Get video duration using pytube"""
