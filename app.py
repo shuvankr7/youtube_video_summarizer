@@ -282,7 +282,27 @@ def get_video_transcript(url: str) -> Optional[str]:
 def get_available_languages(video_id):
     """Get available caption languages using YouTube Transcript API"""
     try:
-        languages = YouTubeTranscriptApi.list_transcripts(video_id)
+        # First check if the video exists and has captions enabled
+        try:
+            languages = YouTubeTranscriptApi.list_transcripts(video_id)
+        except Exception as e:
+            if "Subtitles are disabled" in str(e):
+                st.error("""
+                ❌ This video has subtitles disabled by the creator. 
+                
+                To use this tool, please try a different video that has:
+                1. Manual captions added by the creator, or
+                2. Auto-generated captions enabled
+                
+                You can check if a video has captions by:
+                1. Opening the video on YouTube
+                2. Clicking the "CC" (Closed Captions) button
+                3. If no captions are available, try another video
+                """)
+                return None
+            else:
+                st.error(f"Error getting available languages: {str(e)}")
+                return None
         
         available_languages = []
         for transcript in languages:
@@ -291,6 +311,19 @@ def get_available_languages(video_id):
                 'name': transcript.language,
                 'is_generated': transcript.is_generated
             })
+
+        if not available_languages:
+            st.error("""
+            ❌ No captions available for this video.
+            
+            This could be because:
+            1. The video creator has disabled captions
+            2. The video is too new and auto-captions haven't been generated yet
+            3. The video is private or unlisted
+            
+            Please try a different video that has captions enabled.
+            """)
+            return None
 
         # Show available languages
         st.success("Available languages for this video:")
