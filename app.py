@@ -516,13 +516,26 @@ def summarize_content(content: str) -> str:
 def generate_summary(transcript: str) -> str:
     """Generate summary using Google's Gemini Pro model"""
     try:
-        prompt = """You are a YouTube video summarizer. You will be taking the transcript text
-        and summarizing the entire video and providing the important summary in points
-        within 250 words. Please provide the summary of the text given here: """
+        prompt = """You are a YouTube video summarizer. Please analyze the following transcript and create a comprehensive summary that includes:
+
+1. Main topic and key points
+2. Important details and examples
+3. Key takeaways or conclusions
+
+Format the summary in clear, bullet points. Keep it concise but informative, focusing on the most important information.
+
+Transcript:
+"""
 
         model = genai.GenerativeModel("gemini-pro")
         response = model.generate_content(prompt + transcript)
-        return response.text
+        
+        # Format the response nicely
+        summary = response.text
+        summary = summary.replace("•", "• ")  # Add space after bullet points
+        summary = summary.replace("\n\n", "\n")  # Remove extra newlines
+        
+        return summary
 
     except Exception as e:
         st.error(f"Error generating summary: {str(e)}")
