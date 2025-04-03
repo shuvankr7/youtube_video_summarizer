@@ -520,7 +520,23 @@ def get_video_transcript(url: str) -> Optional[str]:
         for lang in languages:
             st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
 
-        # Try YouTube Transcript API first
+        # Try to get transcript using YouTube Data API first
+        try:
+            api_key = os.getenv('YOUTUBE_API_KEY')
+            if api_key:
+                youtube = build('youtube', 'v3', developerKey=api_key)
+                request = youtube.captions().download(
+                    id=languages[0]['code'],
+                    videoId=video_id
+                )
+                transcript = request.execute()
+                if transcript:
+                    st.success("Successfully retrieved transcript using YouTube Data API")
+                    return transcript
+        except Exception as e:
+            st.warning(f"YouTube Data API transcript retrieval failed: {str(e)}")
+
+        # Try YouTube Transcript API as fallback
         try:
             # Try each available language
             for lang in languages:
@@ -536,7 +552,7 @@ def get_video_transcript(url: str) -> Optional[str]:
         except Exception as e:
             st.warning(f"YouTube Transcript API failed: {str(e)}")
 
-        # Try pytube as fallback
+        # Try pytube as last resort
         try:
             yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
             captions = yt.captions
@@ -657,6 +673,20 @@ def main():
     st.markdown('<p class="title-text">🎥 YouTube Video Summarizer</p>', unsafe_allow_html=True)
     st.markdown('<p class="subtitle-text">Get quick, accurate summaries of YouTube videos in multiple languages</p>', unsafe_allow_html=True)
 
+    # API Settings in expander (full width)
+    with st.expander("⚙️ API Settings"):
+        st.info("If you face any API limitations, you can provide your own Groq API key. Get one at https://console.groq.com . They provide free API key upto a limit, please check their website")
+        user_api_key = st.text_input(
+            "Groq API Key (Optional)", 
+            value=st.session_state.user_api_key,
+            type="password",
+            help="Your API key will be used instead of the default key if provided"
+        )
+        if user_api_key != st.session_state.user_api_key:
+            st.session_state.user_api_key = user_api_key
+            if user_api_key:
+                st.success("✅ API key updated!")
+
     # Main content in a container for better organization
     with st.container():
         # URL input section with improved styling
@@ -723,18 +753,40 @@ def main():
             # Generate summary section
             if st.button("Generate Summary", help="Click to generate video summary"):
                 with st.spinner("🔄 Generating summary..."):
-                    transcript = get_video_transcript(url)
-                    if transcript:
-                        st.session_state.summary = generate_summary(transcript)
-                        st.session_state.language_code = language_code
-                        st.session_state.translated_summary = None
+                    st.session_state.summary = summarize_video(url, language_code)
+                    st.session_state.language_code = language_code
+                    st.session_state.translated_summary = None
 
-            # Display summary
+            # Display summary and translation options
             if st.session_state.summary:
                 st.markdown("### 📝 Video Summary")
                 st.markdown(f"""
                     <div style='background-color: #f8f9fa; padding: 1.5em; border-radius: 5px; margin: 1em 0;'>
                         {st.session_state.summary}
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Translation section with improved UI
+                st.markdown("### 🌐 Translation Options")
+                target_language = st.selectbox(
+                    "Select Target Language (Default Best option is English)",
+                    options=[lang["name"] for lang in SUPPORTED_LANGUAGES],
+                    index=0
+                )
+                
+                if st.button("Translate", help="Click to translate the summary"):
+                    with st.spinner(f"🔄 Translating to {target_language}..."):
+                        st.session_state.translated_summary = translate_summary(
+                            st.session_state.summary, 
+                            target_language
+                        )
+
+            # Display translation with styling
+            if st.session_state.translated_summary:
+                st.markdown(f"### 🌍 {target_language} Translation")
+                st.markdown(f"""
+                    <div style='background-color: #f8f9fa; padding: 1.5em; border-radius: 5px; margin: 1em 0;'>
+                        {st.session_state.translated_summary}
                     </div>
                 """, unsafe_allow_html=True)
 
