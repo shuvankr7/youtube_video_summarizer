@@ -6,4 +6,4 @@ youtube-transcript-api
 pytube
 langchain-community
 http-proxy-list>=0.5.0
-requests>=2.31.0
+requests
