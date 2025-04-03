@@ -246,8 +246,28 @@ def get_video_transcript(url: str) -> Optional[str]:
             st.error("Invalid YouTube URL")
             return None
 
-        # Get transcript
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        # Get available transcripts
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        # Show available languages
+        st.success("Available languages for this video:")
+        for transcript in transcript_list:
+            st.write(f"- {transcript.language} ({'Auto-generated' if transcript.is_generated else 'Manually created'})")
+        
+        # Try to get English transcript first
+        try:
+            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+            st.success("Using English transcript")
+        except:
+            # If English not available, try Hindi
+            try:
+                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi'])
+                st.warning("English transcript not available. Using Hindi transcript instead.")
+            except:
+                # If neither English nor Hindi available, get the first available language
+                first_lang = transcript_list[0].language_code
+                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[first_lang])
+                st.warning(f"Using {transcript_list[0].language} transcript")
         
         # Format transcript
         formatter = TextFormatter()
