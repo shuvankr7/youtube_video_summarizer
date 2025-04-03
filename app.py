@@ -15,6 +15,8 @@ import random
 import time
 from urllib.parse import urlparse
 import json
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Load environment variables from .env file
 load_dotenv()
@@ -182,10 +184,96 @@ def extract_video_id(url):
         return match.group(1)
     return None
 
+def get_proxy():
+    """Get a working proxy from multiple reliable proxy services"""
+    proxy_sources = [
+        'https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all',
+        'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt',
+        'https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt'
+    ]
+    
+    for source in proxy_sources:
+        try:
+            response = requests.get(source, timeout=10)
+            if response.status_code == 200:
+                proxies = response.text.strip().split('\n')
+                for proxy in proxies:
+                    if proxy.strip():
+                        proxy_url = f"http://{proxy.strip()}"
+                        try:
+                            # Test the proxy with a session that has retry logic
+                            session = requests.Session()
+                            retry = Retry(
+                                total=3,
+                                backoff_factor=0.1,
+                                status_forcelist=[500, 502, 503, 504]
+                            )
+                            adapter = HTTPAdapter(max_retries=retry)
+                            session.mount('http://', adapter)
+                            session.mount('https://', adapter)
+                            
+                            test_response = session.get(
+                                'https://www.youtube.com',
+                                proxies={'http': proxy_url, 'https': proxy_url},
+                                timeout=5
+                            )
+                            if test_response.status_code == 200:
+                                return {'http': proxy_url, 'https': proxy_url}
+                        except:
+                            continue
+        except:
+            continue
+    return None
+
+def get_transcript_with_proxy(video_id, languages=[]):
+    """Get transcript using proxy if needed"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # First try without proxy
+            return YouTubeTranscriptApi.get_transcript(video_id, languages=languages)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                # Try with proxy
+                proxy = get_proxy()
+                if proxy:
+                    try:
+                        return YouTubeTranscriptApi.get_transcript(video_id, languages=languages, proxies=proxy)
+                    except:
+                        time.sleep(2)  # Wait before next attempt
+                        continue
+            else:
+                st.error("Could not retrieve transcript. Please try again later or use a different video.")
+                return None
+
+def get_transcript_list_with_proxy(video_id):
+    """Get transcript list using proxy if needed"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # First try without proxy
+            return YouTubeTranscriptApi.list_transcripts(video_id)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                # Try with proxy
+                proxy = get_proxy()
+                if proxy:
+                    try:
+                        return YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
+                    except:
+                        time.sleep(2)  # Wait before next attempt
+                        continue
+            else:
+                st.error("Could not retrieve available languages. Please try again later or use a different video.")
+                return None
+
 def get_available_languages(video_id):
     """Get available languages for a video"""
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript_list = get_transcript_list_with_proxy(video_id)
+        if not transcript_list:
+            return None
+            
         available_languages = []
         for transcript in transcript_list:
             available_languages.append({
@@ -201,7 +289,10 @@ def get_available_languages(video_id):
 def get_video_transcript(video_id, language_code='en'):
     """Get transcript for a YouTube video in specified language"""
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=[language_code])
+        transcript_list = get_transcript_with_proxy(video_id, languages=[language_code])
+        if not transcript_list:
+            return None
+            
         transcript_text = " ".join([t['text'] for t in transcript_list])
         return transcript_text
     except NoTranscriptFound:
@@ -357,73 +448,6 @@ def translate_summary(summary, target_language='en'):
     except Exception as e:
         st.error(f"Error translating summary: {str(e)}")
         return None
-
-def get_proxy():
-    """Get a working proxy from a reliable proxy service"""
-    try:
-        # Try to get a proxy from a reliable proxy service
-        response = requests.get('https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all')
-        if response.status_code == 200:
-            proxies = response.text.strip().split('\r\n')
-            for proxy in proxies:
-                if proxy:
-                    proxy_url = f"http://{proxy}"
-                    try:
-                        # Test the proxy
-                        test_response = requests.get(
-                            'https://www.youtube.com',
-                            proxies={'http': proxy_url, 'https': proxy_url},
-                            timeout=5
-                        )
-                        if test_response.status_code == 200:
-                            return {'http': proxy_url, 'https': proxy_url}
-                    except:
-                        continue
-    except:
-        pass
-    return None
-
-def get_transcript_with_proxy(video_id, languages=[]):
-    """Get transcript using proxy if needed"""
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            # First try without proxy
-            return YouTubeTranscriptApi.get_transcript(video_id, languages=languages)
-        except Exception as e:
-            if attempt < max_retries - 1:
-                # Try with proxy
-                proxy = get_proxy()
-                if proxy:
-                    try:
-                        return YouTubeTranscriptApi.get_transcript(video_id, languages=languages, proxies=proxy)
-                    except:
-                        time.sleep(2)  # Wait before next attempt
-                        continue
-            else:
-                st.error("Could not retrieve transcript. Please try again later or use a different video.")
-                return None
-
-def get_transcript_list_with_proxy(video_id):
-    """Get transcript list using proxy if needed"""
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            # First try without proxy
-            return YouTubeTranscriptApi.list_transcripts(video_id)
-        except Exception as e:
-            if attempt < max_retries - 1:
-                # Try with proxy
-                proxy = get_proxy()
-                if proxy:
-                    try:
-                        return YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
-                    except:
-                        time.sleep(2)  # Wait before next attempt
-                        continue
-            else:
-                st.error("Could not retrieve available languages. Please try again later or use a different video.")
-                return None
 
 def main():
     st.set_page_config(
