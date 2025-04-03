@@ -248,7 +248,24 @@ def get_video_info(url: str) -> Optional[Dict[str, Any]]:
 def get_available_languages(video_id):
     """Get available caption languages using multiple methods"""
     try:
-        # Method 1: Try YouTube Transcript API
+        # Method 1: Try pytube first
+        try:
+            yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+            captions = yt.captions
+            if captions:
+                available_languages = []
+                for lang_code in captions:
+                    caption = captions[lang_code]
+                    available_languages.append({
+                        'code': lang_code,
+                        'name': caption.name,
+                        'is_generated': caption.code.startswith('a.')
+                    })
+                return available_languages
+        except:
+            pass
+
+        # Method 2: Try YouTube Transcript API
         try:
             languages = YouTubeTranscriptApi.list_transcripts(video_id)
             available_languages = []
@@ -262,7 +279,7 @@ def get_available_languages(video_id):
         except:
             pass
 
-        # Method 2: Check video page for captions
+        # Method 3: Check video page for captions
         try:
             response = requests.get(f"https://www.youtube.com/watch?v={video_id}")
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -283,6 +300,19 @@ def get_available_languages(video_id):
         except:
             pass
 
+        st.error("""
+        ❌ No captions available for this video.
+        
+        This could be because:
+        1. The video creator has disabled captions
+        2. The video is too new and auto-captions haven't been generated yet
+        3. The video is private or unlisted
+        
+        Please try:
+        1. A different video that has captions enabled
+        2. Waiting a few hours for auto-captions to generate
+        3. A video from a channel that typically has captions enabled
+        """)
         return None
 
     except Exception as e:
