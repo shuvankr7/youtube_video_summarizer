@@ -189,18 +189,44 @@ def extract_video_id(url):
 
 def get_video_info(url: str) -> Optional[Dict[str, Any]]:
     """
-    Get video information using pytube
+    Get video information using YouTube Data API
     """
     try:
-        yt = YouTube(url)
+        # Get YouTube API key from environment variables
+        api_key = os.getenv("YOUTUBE_API_KEY")
+        if not api_key:
+            st.error("YouTube API key not found. Please set YOUTUBE_API_KEY in your .env file.")
+            return None
+
+        # Extract video ID
+        video_id = extract_video_id(url)
+        if not video_id:
+            st.error("Invalid YouTube URL")
+            return None
+
+        # Build YouTube API service
+        youtube = build('youtube', 'v3', developerKey=api_key)
+
+        # Get video details
+        video_response = youtube.videos().list(
+            part='snippet,statistics,contentDetails',
+            id=video_id
+        ).execute()
+
+        if not video_response['items']:
+            st.error("Video not found")
+            return None
+
+        video = video_response['items'][0]
         return {
-            'title': yt.title,
-            'author': yt.author,
-            'length': yt.length,
-            'views': yt.views,
-            'publish_date': yt.publish_date,
-            'description': yt.description
+            'title': video['snippet']['title'],
+            'author': video['snippet']['channelTitle'],
+            'length': video['contentDetails']['duration'],
+            'views': video['statistics']['viewCount'],
+            'publish_date': video['snippet']['publishedAt'],
+            'description': video['snippet']['description']
         }
+
     except Exception as e:
         st.error(f"Error getting video info: {str(e)}")
         return None
@@ -262,79 +288,116 @@ def get_proxy():
 
 def get_video_transcript(url: str) -> Optional[str]:
     """
-    Get video transcript using pytube
+    Get video transcript using YouTube Data API
     """
     try:
-        yt = YouTube(url)
-        
-        # Get available captions
-        captions = yt.captions
-        if not captions:
-            st.error("No captions available for this video")
+        # Get YouTube API key from environment variables
+        api_key = os.getenv("YOUTUBE_API_KEY")
+        if not api_key:
+            st.error("YouTube API key not found. Please set YOUTUBE_API_KEY in your .env file.")
             return None
-            
-        # Show available languages
-        available_languages = []
-        for lang_code in captions:
-            caption = captions[lang_code]
-            available_languages.append({
-                'code': lang_code,
-                'name': caption.name,
-                'is_generated': caption.code.startswith('a.')
-            })
-            
-        st.success("Available languages for this video:")
-        for lang in available_languages:
-            st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
-            
-        # Try to get English transcript first
+
+        # Extract video ID
+        video_id = extract_video_id(url)
+        if not video_id:
+            st.error("Invalid YouTube URL")
+            return None
+
+        # Build YouTube API service
+        youtube = build('youtube', 'v3', developerKey=api_key)
+
+        # Get video captions
         try:
-            caption = captions['en']
-            st.success("Using English transcript")
-        except KeyError:
-            # If English not available, try Hindi
+            captions = youtube.captions().list(
+                part="snippet",
+                videoId=video_id
+            ).execute()
+
+            if not captions.get('items'):
+                st.error("No captions available for this video")
+                return None
+
+            # Get available languages
+            available_languages = []
+            for caption in captions['items']:
+                available_languages.append({
+                    'code': caption['snippet']['language'],
+                    'name': caption['snippet']['language'],
+                    'is_generated': caption['snippet']['trackKind'] == 'ASR'
+                })
+
+            # Show available languages
+            st.success("Available languages for this video:")
+            for lang in available_languages:
+                st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
+
+            # Try to get English transcript first
             try:
-                caption = captions['hi']
-                st.warning("English transcript not available. Using Hindi transcript instead.")
-            except KeyError:
-                # If neither English nor Hindi available, get the first available language
-                first_lang = list(captions.keys())[0]
-                caption = captions[first_lang]
-                st.warning(f"Using {captions[first_lang].name} transcript")
-                
-        # Get transcript text
-        transcript_text = caption.generate_srt_captions()
-        return transcript_text
-        
+                caption_id = next(c['id'] for c in captions['items'] if c['snippet']['language'] == 'en')
+            except StopIteration:
+                # If English not available, try Hindi
+                try:
+                    caption_id = next(c['id'] for c in captions['items'] if c['snippet']['language'] == 'hi')
+                    st.warning("English transcript not available. Using Hindi transcript instead.")
+                except StopIteration:
+                    # If neither English nor Hindi available, get the first available language
+                    caption_id = captions['items'][0]['id']
+                    st.warning(f"Using {captions['items'][0]['snippet']['language']} transcript")
+
+            # Download the transcript
+            transcript = youtube.captions().download(
+                id=caption_id,
+                tfmt='srt'
+            ).execute()
+
+            return transcript
+
+        except HttpError as e:
+            st.error(f"YouTube API error: {str(e)}")
+            return None
+
     except Exception as e:
         st.error(f"Error getting transcript: {str(e)}")
         return None
 
 def get_available_languages(video_id):
-    """Get available caption languages using pytube"""
+    """Get available caption languages using YouTube Data API"""
     try:
-        yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
-        captions = yt.captions
-        
-        if not captions:
+        # Get YouTube API key from environment variables
+        api_key = os.getenv("YOUTUBE_API_KEY")
+        if not api_key:
+            st.error("YouTube API key not found. Please set YOUTUBE_API_KEY in your .env file.")
+            return None
+
+        # Build YouTube API service
+        youtube = build('youtube', 'v3', developerKey=api_key)
+
+        # Get video captions
+        captions = youtube.captions().list(
+            part="snippet",
+            videoId=video_id
+        ).execute()
+
+        if not captions.get('items'):
             st.error("No captions available for this video")
             return None
-            
+
+        # Get available languages
         available_languages = []
-        for lang_code in captions:
-            caption = captions[lang_code]
+        for caption in captions['items']:
             available_languages.append({
-                'code': lang_code,
-                'name': caption.name,
-                'is_generated': caption.code.startswith('a.')
+                'code': caption['snippet']['language'],
+                'name': caption['snippet']['language'],
+                'is_generated': caption['snippet']['trackKind'] == 'ASR'
             })
-            
+
+        # Show available languages
         st.success("Available languages for this video:")
         for lang in available_languages:
             st.write(f"- {lang['name']} ({'Auto-generated' if lang['is_generated'] else 'Manually created'})")
-            
+
         return available_languages
-        
+
     except Exception as e:
         st.error(f"Error getting available languages: {str(e)}")
         return None
