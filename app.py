@@ -283,9 +283,11 @@ def get_video_transcript(url: str) -> Optional[str]:
                     st.warning(f"Using {transcript_list[0].language} transcript")
             
             # Convert transcript to text
-            formatter = TextFormatter()
-            transcript_text = formatter.format_transcript(transcript)
-            return transcript_text
+            transcript_text = ""
+            for entry in transcript:
+                transcript_text += entry['text'] + " "
+            
+            return transcript_text.strip()
             
         except Exception as e:
             if attempt < max_retries - 1:
