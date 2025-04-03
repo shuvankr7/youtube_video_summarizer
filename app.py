@@ -262,7 +262,7 @@ def get_proxy():
 
 def get_video_transcript(url: str) -> Optional[str]:
     """
-    Get video transcript using youtube-transcript-api with retry mechanism and proxy support
+    Get video transcript using youtube-transcript-api
     """
     max_retries = 3
     retry_delay = 2  # seconds
@@ -275,17 +275,8 @@ def get_video_transcript(url: str) -> Optional[str]:
     
     for attempt in range(max_retries):
         try:
-            # First try without proxy
-            try:
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-            except Exception as e:
-                # If direct access fails, try with proxy
-                proxy = get_proxy()
-                if proxy:
-                    st.info("Using proxy to access YouTube...")
-                    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
-                else:
-                    raise e
+            # Get available transcripts
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             
             # Get all available languages
             available_languages = []
@@ -306,7 +297,7 @@ def get_video_transcript(url: str) -> Optional[str]:
                 transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
                 st.success("Using English transcript")
             except:
-                # If English not available, try Hindi (since it's available)
+                # If English not available, try Hindi
                 try:
                     transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['hi'])
                     st.warning("English transcript not available. Using Hindi transcript instead.")
@@ -332,20 +323,13 @@ def get_video_transcript(url: str) -> Optional[str]:
                 return None
 
 def get_available_languages(video_id):
-    """Get available caption languages using youtube-transcript-api with Webshare proxy support"""
+    """Get available caption languages"""
     max_retries = 3
     retry_delay = 2  # seconds
     
     for attempt in range(max_retries):
         try:
-            # Try with Webshare proxy first
-            proxy = get_proxy()
-            if proxy:
-                st.info("Using Webshare residential proxy to access YouTube...")
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id, proxies=proxy)
-            else:
-                st.warning("No proxy available, attempting direct access...")
-                transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
             
             available_languages = []
             for transcript in transcript_list:
@@ -373,14 +357,6 @@ def get_available_languages(video_id):
                 continue
             else:
                 st.error(f"Error getting available languages after {max_retries} attempts: {str(e)}")
-                st.info("""
-                    To resolve this issue:
-                    1. Sign up for Webshare residential proxies at https://www.webshare.io/
-                    2. Add your credentials to the .env file:
-                       WEBSHARE_USERNAME=your_username
-                       WEBSHARE_PASSWORD=your_password
-                    3. Restart the application
-                """)
                 return None
 
 def get_video_duration(url):
